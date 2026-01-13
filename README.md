@@ -10,3 +10,6 @@ register server--> connection:
   Maintenance database: steam_review
   Username: root
   password: root
+
+
+  conda need lib: request, postgresql

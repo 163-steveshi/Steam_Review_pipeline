@@ -1,1 +1,5 @@
 *.json
+
+# Docker runtime data
+pgadmin_data/
+steam_reviews_postgres_data/
