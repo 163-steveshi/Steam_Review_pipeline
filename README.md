@@ -11,5 +11,5 @@ register server--> connection:
   Username: root
   password: root
 
-
-  conda need lib: request, postgresql
+conda install -c conda-forge sqlalchemy psycopg
+  conda need lib: request, postgresql, sqlalchemy psycopg
