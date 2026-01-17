@@ -1,11 +1,16 @@
 import requests
 
 import json
-from typing import List, Optional
+import hashlib
+from typing import List, Optional, Any
+from sqlalchemy import create_engine, text, insert
 
-# python coding habt: design the data classes for declare stored data type
-# rather than make regular oop object
-from dataclasses import dataclass
+# # python coding habt: design the data classes for declare stored data type
+# # rather than make regular oop object
+# from dataclasses import dataclass
+# industry used construct data model via class definition
+from pydantic import BaseModel
+from api_based_pipeline.model import RawReview
 
 PURCHASE_TYPE: set[str] = {"all", "non_steam_purchase", "steam"}
 ALLOWED_FILTERS: set[str] = {"all", "recent", "updated"}
@@ -44,8 +49,7 @@ ALLOWED_LANGUAGE: set[str] = {
 }
 
 
-@dataclass
-class Author:
+class Author(BaseModel):
     steamid: str
     num_games_owned: Optional[int]
     num_reviews: Optional[int]
@@ -55,8 +59,7 @@ class Author:
     last_played: Optional[int]
 
 
-@dataclass
-class Review:
+class Review(BaseModel):
     recommendationid: str
     author: Author
     language: str
@@ -74,8 +77,7 @@ class Review:
     primarily_steam_deck: bool
 
 
-@dataclass
-class QuerySummary:
+class QuerySummary(BaseModel):
     num_reviews: int
     review_score: int
     review_score_desc: str
@@ -84,49 +86,148 @@ class QuerySummary:
     total_reviews: int
 
 
-@dataclass
-class SteamReviewAPIResponse:
+class SteamReviewAPIResponse(BaseModel):
     success: int
     query_summary: QuerySummary
     reviews: List[Review]
     cursor: str
+    app_id: int
 
 
 def requestReview(
     gameId: int = 3180070,
     filter: str = "all",
-    language: str = "str",
+    language: str = "all",
     cursor: str = "*",
     purchase_type: str = "all",
     num_per_page: int = 100,
 ) -> SteamReviewAPIResponse:
 
     if not isinstance(gameId, int):
-        raise ValueError("game id  must be an integer")
+        raise ValueError("game id must be an integer")
     if gameId < 10:
         raise ValueError("game id is too small to be a valid Steam app")
     if filter not in ALLOWED_FILTERS:
-        raise ValueError("wrong filter value, only support ")
+        raise ValueError("wrong filter value, only support: 'all', 'recent', 'updated'")
 
     if language not in ALLOWED_LANGUAGE:
-        raise ValueError("Unsupport langauge value" + getSupportParamterDoc())
+        raise ValueError("Unsupport langauge value" + getLanguageSupportDoc())
+
+    if purchase_type not in PURCHASE_TYPE:
+        raise ValueError(
+            "wrong filter value, only support: 'all', 'non_steam_purchase', 'steam'"
+        )
+    if not isinstance(num_per_page, int):
+        raise ValueError("num_per_page must be an integer")
+    if num_per_page < 20 or num_per_page > 100:
+        raise ValueError("num_per_page must be in the range of 20 to 100")
 
     url = f"https://store.steampowered.com/appreviews/{gameId}?json=1&filter={filter}&language={language}&purchase_type={purchase_type}&num_per_page={num_per_page}&cursor={cursor}"
 
     res = requests.get(url, timeout=10)
 
     print(res.status_code)
-    print(res.json())
     result = res.json()
-    return result
+    print(result)
+
+    if res.status_code != 200:
+        raise RuntimeError("Steam API request failed, please try again with cool down")
+    if result.get("success") != 1:
+        raise ValueError(result.get("error"))
+    result["app_id"] = gameId
+    return SteamReviewAPIResponse.model_validate(result)
 
 
-def getSupportParamterDoc() -> str:
+def getLanguageSupportDoc() -> str:
     return "You can read the api docs to learn support language value: https://partner.steamgames.com/doc/store/localization/languages"
 
 
+def loadAPIRespondToBronzeLayer(reviewData: SteamReviewAPIResponse) -> bool:
+
+    if reviewData.query_summary.num_reviews == 0:
+        raise ValueError(
+            "Wrong steam app id: please search the game correct id via: https://steamdb.info/"
+        )
+    reviews = []
+
+    for r in reviewData.reviews:
+        # converts a Pydantic model into a plain Python json
+        # exlcude none for handling fale format like empty value sometimes is null or just empty string
+        # since the data is structured from api, the chance would be minimum
+        # good pratical use when the data is raw or semistructure
+        reviewJson = r.model_dump(mode="json", exclude_none=True)
+        reviews.append(
+            {
+                "app_id": reviewData.app_id,
+                "review_id": r.recommendationid,
+                "hash_raw_json": hashJson(reviewJson),
+                "raw_json": reviewJson,
+            }
+        )
+
+    ingestRawReview(reviews)
+    # old orm way need to optimized
+    # for r in reviewData.reviews:
+    #     review = RawReview(
+    #         app_id=reviewData.app_id,
+    #         review_id=r.recommendationid,
+    #         hash_raw_json=hashJson(r),
+    #         raw_json=r,
+    #     )
+    #     reviews.append(review)
+    # # call log the ingestion
+    # # ingest the data
+
+    return True
+
+
+def ingestRawReview(reviews: List[RawReview]):
+
+    DATABASE_URL = "postgresql+psycopg://root:root@localhost:55432/steam_review"
+
+    engine = create_engine(DATABASE_URL)
+
+    with engine.begin() as connection:
+        # SQL ALchemy neeeds this object to target table in db and its format
+        statementObj = insert(RawReview)
+        connection.execute(statementObj, reviews)
+
+    with engine.begin() as connection:
+        result = connection.execute(text("SELECT * FROM bronze.raw_review;"))
+        rows = result.fetchall()
+        print(rows)
+
+    # close any idle connection
+    engine.dispose()
+
+
+def hashJson(jsonVal: dict[str, Any]) -> str:
+
+    # order the json key in ascending order and remove the extra space
+    # produce the same deterministic json if the key and value are the same
+    text = json.dumps(jsonVal, sort_keys=True, separators=(",", ":"))
+
+    # hash the review json into SHA-256 hex
+    # so we can collect review and possible it's updated version
+    # so we can acheive deduplication
+    hashVal = hashlib.sha256(text.encode("utf-8")).hexdigest()
+    return hashVal
+
+
+def recordIngestionFailure(error: str, runId: int = -1):
+    # when id is -1 mean their is first time crash before try to write partial data to db
+    # TODO: replace the below logic to real writing to the db logic
+    print("load the error to the db")
+
+
 def main():
-    requestReview(gameId=10)
+    try:
+
+        reviewData = requestReview()
+        loadAPIRespondToBronzeLayer(reviewData)
+    except ValueError as valError:
+
+        recordIngestionFailure(str(valError))
 
 
 if __name__ == "__main__":
