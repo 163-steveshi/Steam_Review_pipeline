@@ -1,11 +1,10 @@
 import requests
-
+import uuid
 import json
 import hashlib
 from typing import List, Optional, Any
 from sqlalchemy import create_engine, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
-
 
 # # python coding habt: design the data classes for declare stored data type
 # # rather than make regular oop object
@@ -240,7 +239,17 @@ def hashJson(jsonVal: dict[str, Any]) -> str:
     return hashVal
 
 
-def recordIngestionFailure(error: str, runId: int = -1):
+def startIngestionRun():
+    # generate a randome UNIQUE ID FROM the
+    runId = uuid.uuid4()
+
+
+def markIngestionSucesss():
+
+    print("Ingtestion Complete successful")
+
+
+def markIngestionFailure(error: str, runId: int = -1):
     # when id is -1 mean their is first time crash before try to write partial data to db
     # TODO: replace the below logic to real writing to the db logic
     print("load the error to the db")
