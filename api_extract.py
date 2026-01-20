@@ -3,7 +3,9 @@ import requests
 import json
 import hashlib
 from typing import List, Optional, Any
-from sqlalchemy import create_engine, text, insert
+from sqlalchemy import create_engine, text
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+
 
 # # python coding habt: design the data classes for declare stored data type
 # # rather than make regular oop object
@@ -122,13 +124,20 @@ def requestReview(
     if num_per_page < 20 or num_per_page > 100:
         raise ValueError("num_per_page must be in the range of 20 to 100")
 
-    url = f"https://store.steampowered.com/appreviews/{gameId}?json=1&filter={filter}&language={language}&purchase_type={purchase_type}&num_per_page={num_per_page}&cursor={cursor}"
-
-    res = requests.get(url, timeout=10)
+    url = f"https://store.steampowered.com/appreviews/{gameId}"
+    params = {
+        "json": 1,
+        "filter": filter,
+        "language": language,
+        "purchase_type": purchase_type,
+        "num_per_page": num_per_page,
+        "cursor": cursor,
+    }
+    res = requests.get(url, params=params, timeout=10)
 
     print(res.status_code)
     result = res.json()
-    print(result)
+    # print(result)
 
     if res.status_code != 200:
         raise RuntimeError("Steam API request failed, please try again with cool down")
@@ -165,7 +174,11 @@ def loadAPIRespondToBronzeLayer(reviewData: SteamReviewAPIResponse) -> bool:
             }
         )
 
-    ingestRawReview(reviews)
+    insertRowNum = ingestRawReview(reviews)
+    print("total " + str(insertRowNum) + "be inserted into the db")
+    if insertRowNum == 0:
+        print("No more new data be fetched, stop the data pipeline")
+
     # old orm way need to optimized
     # for r in reviewData.reviews:
     #     review = RawReview(
@@ -189,16 +202,29 @@ def ingestRawReview(reviews: List[RawReview]):
 
     with engine.begin() as connection:
         # SQL ALchemy neeeds this object to target table in db and its format
-        statementObj = insert(RawReview)
-        connection.execute(statementObj, reviews)
+        statementObj = pg_insert(RawReview).values(reviews)
+        # use the pg_insert for use the postgre on conflict
+        # avoid raise error filter out the error
+        # need to reassgin for facing error
+        statementObj = statementObj.on_conflict_do_nothing(
+            index_elements=["app_id", "review_id", "hash_raw_json"]
+        )
 
-    with engine.begin() as connection:
-        result = connection.execute(text("SELECT * FROM bronze.raw_review;"))
-        rows = result.fetchall()
-        print(rows)
+        statementObj = statementObj.returning(
+            RawReview.review_id
+        )  # return to count how many value we insert into db
+
+        result = connection.execute(statementObj)
+        # number of rows actual inserted
+        insertedCount = len(result.all())
+    # with engine.begin() as connection:
+    #     result = connection.execute(text("SELECT * FROM bronze.raw_review;"))
+    #     rows = result.fetchall()
+    #     print(rows)
 
     # close any idle connection
     engine.dispose()
+    return insertedCount
 
 
 def hashJson(jsonVal: dict[str, Any]) -> str:
@@ -223,7 +249,7 @@ def recordIngestionFailure(error: str, runId: int = -1):
 def main():
     try:
 
-        reviewData = requestReview()
+        reviewData = requestReview(gameId=730)
         loadAPIRespondToBronzeLayer(reviewData)
     except ValueError as valError:
 
