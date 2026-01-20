@@ -3,15 +3,16 @@ import uuid
 import json
 import hashlib
 from typing import List, Optional, Any
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, text, func
 from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.orm import Session
 
 # # python coding habt: design the data classes for declare stored data type
 # # rather than make regular oop object
 # from dataclasses import dataclass
 # industry used construct data model via class definition
 from pydantic import BaseModel
-from api_based_pipeline.model import RawReview
+from api_based_pipeline.model import RawReview, IngestionRun
 
 PURCHASE_TYPE: set[str] = {"all", "non_steam_purchase", "steam"}
 ALLOWED_FILTERS: set[str] = {"all", "recent", "updated"}
@@ -96,7 +97,7 @@ class SteamReviewAPIResponse(BaseModel):
 
 
 def requestReview(
-    gameId: int = 3180070,
+    appId: int = 3180070,
     filter: str = "all",
     language: str = "all",
     cursor: str = "*",
@@ -104,10 +105,10 @@ def requestReview(
     num_per_page: int = 100,
 ) -> SteamReviewAPIResponse:
 
-    if not isinstance(gameId, int):
-        raise ValueError("game id must be an integer")
-    if gameId < 10:
-        raise ValueError("game id is too small to be a valid Steam app")
+    if not isinstance(appId, int):
+        raise ValueError("app id must be an integer")
+    if appId < 10:
+        raise ValueError("app id is too small to be a valid Steam app")
     if filter not in ALLOWED_FILTERS:
         raise ValueError("wrong filter value, only support: 'all', 'recent', 'updated'")
 
@@ -123,7 +124,7 @@ def requestReview(
     if num_per_page < 20 or num_per_page > 100:
         raise ValueError("num_per_page must be in the range of 20 to 100")
 
-    url = f"https://store.steampowered.com/appreviews/{gameId}"
+    url = f"https://store.steampowered.com/appreviews/{appId}"
     params = {
         "json": 1,
         "filter": filter,
@@ -142,7 +143,7 @@ def requestReview(
         raise RuntimeError("Steam API request failed, please try again with cool down")
     if result.get("success") != 1:
         raise ValueError(result.get("error"))
-    result["app_id"] = gameId
+    result["app_id"] = appId
     return SteamReviewAPIResponse.model_validate(result)
 
 
@@ -150,7 +151,7 @@ def getLanguageSupportDoc() -> str:
     return "You can read the api docs to learn support language value: https://partner.steamgames.com/doc/store/localization/languages"
 
 
-def loadAPIRespondToBronzeLayer(reviewData: SteamReviewAPIResponse) -> bool:
+def loadAPIRespondToBronzeLayer(reviewData: SteamReviewAPIResponse, runId: uuid.UUID) -> bool:
 
     if reviewData.query_summary.num_reviews == 0:
         raise ValueError(
@@ -170,6 +171,7 @@ def loadAPIRespondToBronzeLayer(reviewData: SteamReviewAPIResponse) -> bool:
                 "review_id": r.recommendationid,
                 "hash_raw_json": hashJson(reviewJson),
                 "raw_json": reviewJson,
+                 "run_id": runId,
             }
         )
 
@@ -239,30 +241,55 @@ def hashJson(jsonVal: dict[str, Any]) -> str:
     return hashVal
 
 
-def startIngestionRun():
+
+
+def startIngestionRun(session: Session, app_id: int, startCursor: str) -> uuid.UUID:
     # generate a randome UNIQUE ID FROM the
     runId = uuid.uuid4()
+    run = IngestionRun(
+        run_id=runId,
+        app_id=app_id,
+        status="running",
+        start_cursor=startCursor,
+    )
+    # mark this row of ingestionRun Meta data as pending insert
+    session.add(run)
+    # emits the actual INSERT INTO bronze.ingestion_run (...), but don't commit it
+    # allow roll back, update and so on
+    session.flush()
+    return runId
 
 
-def markIngestionSucesss():
+def markIngestionSucesss(session: Session, error: str, runId: int, endCursor:str, rowFetched:int):
 
-    print("Ingtestion Complete successful")
+     session.query(IngestionRun).filter(IngestionRun.run_id == runId).update({
+        IngestionRun.status: "success",
+        IngestionRun.end_cursor: endCursor,
+        IngestionRun.rows_fetched: IngestionRun.rows_fetched + rowFetched,
+        IngestionRun.finished_at: func.now(),
+        IngestionRun.last_success_cursor: endCursor,
+    })
 
 
-def markIngestionFailure(error: str, runId: int = -1):
-    # when id is -1 mean their is first time crash before try to write partial data to db
-    # TODO: replace the below logic to real writing to the db logic
-    print("load the error to the db")
+def markIngestionFailure(session: Session, error: str, runId: int):  
+    
+    #TODO: update the error later    
+    session.query(IngestionRun).filter(IngestionRun.run_id == runId).update({
+        IngestionRun.status: "failed",
+        IngestionRun.error_type: "erro",
+        IngestionRun.error_message: "testError",
+        IngestionRun.finished_at: func.now(),
+    })
 
 
 def main():
     try:
 
-        reviewData = requestReview(gameId=730)
-        loadAPIRespondToBronzeLayer(reviewData)
+        reviewData = requestReview(appId=730)
+        # loadAPIRespondToBronzeLayer(reviewData)
     except ValueError as valError:
 
-        recordIngestionFailure(str(valError))
+        # markIngestionFailure(str(valError))
 
 
 if __name__ == "__main__":
