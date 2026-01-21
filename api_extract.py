@@ -3,9 +3,9 @@ import uuid
 import json
 import hashlib
 from typing import List, Optional, Any
-from sqlalchemy import create_engine, text, func
+from sqlalchemy import create_engine, text, func, select, desc, Engine
 from sqlalchemy.dialects.postgresql import insert as pg_insert
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
 # # python coding habt: design the data classes for declare stored data type
 # # rather than make regular oop object
@@ -96,9 +96,16 @@ class SteamReviewAPIResponse(BaseModel):
     app_id: int
 
 
+def checkValidAppId(appId: int):
+    url = f"https://store.steampowered.com/app/{appId}"
+    responds = requests.get(url)
+
+    print("Welcome to Steam" not in responds.text)
+
+
 def requestReview(
     appId: int = 3180070,
-    filter: str = "all",
+    filter: str = "recent",
     language: str = "all",
     cursor: str = "*",
     purchase_type: str = "all",
@@ -151,7 +158,9 @@ def getLanguageSupportDoc() -> str:
     return "You can read the api docs to learn support language value: https://partner.steamgames.com/doc/store/localization/languages"
 
 
-def loadAPIRespondToBronzeLayer(reviewData: SteamReviewAPIResponse, runId: uuid.UUID) -> bool:
+def loadAPIRespondToBronzeLayer(
+    reviewData: SteamReviewAPIResponse, runId: uuid.UUID
+) -> int:
 
     if reviewData.query_summary.num_reviews == 0:
         raise ValueError(
@@ -171,7 +180,7 @@ def loadAPIRespondToBronzeLayer(reviewData: SteamReviewAPIResponse, runId: uuid.
                 "review_id": r.recommendationid,
                 "hash_raw_json": hashJson(reviewJson),
                 "raw_json": reviewJson,
-                 "run_id": runId,
+                "run_id": runId,
             }
         )
 
@@ -192,7 +201,7 @@ def loadAPIRespondToBronzeLayer(reviewData: SteamReviewAPIResponse, runId: uuid.
     # # call log the ingestion
     # # ingest the data
 
-    return True
+    return insertRowNum
 
 
 def ingestRawReview(reviews: List[RawReview]):
@@ -241,14 +250,40 @@ def hashJson(jsonVal: dict[str, Any]) -> str:
     return hashVal
 
 
+def chooseStartCursor(session: Session, appID: int) -> str:
+
+    # get the latest ingestion run token
+    lastRun = (
+        session.execute(
+            select(IngestionRun)
+            .where(IngestionRun.app_id == appID, IngestionRun.status == "success")
+            .order_by(desc(IngestionRun.finished_at))
+            .limit(1)
+        )
+        .scalars()
+        .one_or_none()
+    )
+
+    if lastRun is None:
+        print("last run is empty")
+        return "*"
+    # resume from the last cursor
+    # TODO: adjust to only valid for 1 hour, for safety
+    if lastRun.last_success_cursor is not None:
+        print("we have a valid cursor")
+        return str(lastRun.last_success_cursor)
+
+    # if no successful cursor
+    print("we have no success cursor")
+    return "*"
 
 
-def startIngestionRun(session: Session, app_id: int, startCursor: str) -> uuid.UUID:
+def startIngestionRun(session: Session, appId: int, startCursor: str) -> uuid.UUID:
     # generate a randome UNIQUE ID FROM the
     runId = uuid.uuid4()
     run = IngestionRun(
         run_id=runId,
-        app_id=app_id,
+        app_id=appId,
         status="running",
         start_cursor=startCursor,
     )
@@ -260,36 +295,82 @@ def startIngestionRun(session: Session, app_id: int, startCursor: str) -> uuid.U
     return runId
 
 
-def markIngestionSucesss(session: Session, error: str, runId: int, endCursor:str, rowFetched:int):
+def markIngestionSucesss(
+    session: Session, runId: uuid.UUID, endCursor: str, rowsFetched: int
+):
 
-     session.query(IngestionRun).filter(IngestionRun.run_id == runId).update({
-        IngestionRun.status: "success",
-        IngestionRun.end_cursor: endCursor,
-        IngestionRun.rows_fetched: IngestionRun.rows_fetched + rowFetched,
-        IngestionRun.finished_at: func.now(),
-        IngestionRun.last_success_cursor: endCursor,
-    })
+    session.query(IngestionRun).filter(IngestionRun.run_id == runId).update(
+        {
+            IngestionRun.status: "success",
+            IngestionRun.end_cursor: endCursor,
+            IngestionRun.rows_fetched: IngestionRun.rows_fetched + rowsFetched,
+            IngestionRun.finished_at: func.now(),
+            IngestionRun.last_success_cursor: endCursor,
+        }
+    )
 
 
-def markIngestionFailure(session: Session, error: str, runId: int):  
-    
-    #TODO: update the error later    
-    session.query(IngestionRun).filter(IngestionRun.run_id == runId).update({
-        IngestionRun.status: "failed",
-        IngestionRun.error_type: "erro",
-        IngestionRun.error_message: "testError",
-        IngestionRun.finished_at: func.now(),
-    })
+def markIngestionFailure(
+    session: Session, errorType: str, errorMessage: str, runId: uuid.UUID
+):
+
+    # TODO: update the error later
+    session.query(IngestionRun).filter(IngestionRun.run_id == runId).update(
+        {
+            IngestionRun.status: "failed",
+            IngestionRun.error_type: "erro",
+            IngestionRun.error_message: "testError",
+            IngestionRun.finished_at: func.now(),
+        }
+    )
+
+
+# TODO: need to test it
+def runOnePageIngestion(appId: int, engine: Engine):
+    # session object defintiion: for later create safe
+    SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+    with SessionLocal() as session:
+        startCursor = chooseStartCursor(session, appId)
+        runId = startIngestionRun(session, appId, startCursor)
+        try:
+
+            reviewData = requestReview(appId, cursor=startCursor)
+
+            insertedRowNum = loadAPIRespondToBronzeLayer(reviewData, runId)
+
+            markIngestionSucesss(
+                session,
+                runId,
+                endCursor=reviewData.cursor,
+                rowsFetched=insertedRowNum,
+            )
+            session.commit()
+
+        except Exception as e:
+            errorType = ""
+            errorMessage = ""
+            markIngestionFailure(
+                session,
+                errorType,
+                errorMessage,
+                runId,
+            )
+            session.commit()
+            raise
 
 
 def main():
-    try:
+    # try:
 
-        reviewData = requestReview(appId=730)
-        # loadAPIRespondToBronzeLayer(reviewData)
-    except ValueError as valError:
+    #     reviewData = requestReview(appId=730)
+    #     # loadAPIRespondToBronzeLayer(reviewData)
+    # except ValueError as valError:
 
-        # markIngestionFailure(str(valError))
+    #     # markIngestionFailure(str(valError))
+    DATABASE_URL = "postgresql+psycopg://root:root@localhost:55432/steam_review"
+
+    engine = create_engine(DATABASE_URL)
+    checkValidAppId(730)
 
 
 if __name__ == "__main__":
