@@ -3,14 +3,15 @@ import uuid
 import json
 import hashlib
 from typing import List, Optional, Any
-from sqlalchemy import create_engine, text, func, select, desc, Engine
+from datetime import datetime, timedelta
+from sqlalchemy import create_engine, func, select, desc, Engine
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session, sessionmaker
 
-# # python coding habt: design the data classes for declare stored data type
+# # python coding habit: design the data classes for declare stored data type
 # # rather than make regular oop object
 # from dataclasses import dataclass
-# industry used construct data model via class definition
+# industry used construct data model via class definition like pydantic
 from pydantic import BaseModel
 from api_based_pipeline.model import RawReview, IngestionRun
 
@@ -96,13 +97,6 @@ class SteamReviewAPIResponse(BaseModel):
     app_id: int
 
 
-def checkValidAppId(appId: int):
-    url = f"https://store.steampowered.com/app/{appId}"
-    responds = requests.get(url)
-
-    print("Welcome to Steam" not in responds.text)
-
-
 def requestReview(
     appId: int = 3180070,
     filter: str = "recent",
@@ -161,7 +155,8 @@ def getLanguageSupportDoc() -> str:
 def loadAPIRespondToBronzeLayer(
     reviewData: SteamReviewAPIResponse, runId: uuid.UUID
 ) -> int:
-
+    # TODO: false handling treat it as no review yet
+    # try to place outside and call a new function called skip ingestion
     if reviewData.query_summary.num_reviews == 0:
         raise ValueError(
             "Wrong steam app id: please search the game correct id via: https://steamdb.info/"
@@ -267,15 +262,35 @@ def chooseStartCursor(session: Session, appID: int) -> str:
     if lastRun is None:
         print("last run is empty")
         return "*"
+    now = datetime.now()
     # resume from the last cursor
-    # TODO: adjust to only valid for 1 hour, for safety
-    if lastRun.last_success_cursor is not None:
+    # if the task finished within 1 hour
+    if (
+        lastRun.last_success_cursor is not None
+        and lastRun.finished_at is not None
+        and now <= lastRun.finished_at + timedelta(hours=1)
+    ):
         print("we have a valid cursor")
         return str(lastRun.last_success_cursor)
 
     # if no successful cursor
     print("we have no success cursor")
     return "*"
+
+
+def requestReviewsWithFallback(
+    appId: int,
+    filter: str = "recent",
+    language: str = "all",
+    cursor: str = "*",
+    purchase_type: str = "all",
+    num_per_page: int = 100,
+) -> SteamReviewAPIResponse:
+    try:
+        return requestReview(appId, cursor)
+    except Exception:
+
+        return requestReview(cursor="*")
 
 
 def startIngestionRun(session: Session, appId: int, startCursor: str) -> uuid.UUID:
@@ -325,27 +340,63 @@ def markIngestionFailure(
     )
 
 
-# TODO: need to test it
-def runOnePageIngestion(appId: int, engine: Engine):
+def updateRunningIngestion(
+    session: Session, runId: uuid.UUID, endCursor: str, rowsFetched: int, status: str
+):
+
+    session.query(IngestionRun).filter(IngestionRun.run_id == runId).update(
+        {
+            IngestionRun.status: status,
+            IngestionRun.end_cursor: endCursor,
+            IngestionRun.rows_fetched: rowsFetched,
+            IngestionRun.finished_at: func.now(),
+            IngestionRun.last_success_cursor: endCursor,
+        }
+    )
+
+
+# run Ingestion ()
+def runIngestion(
+    engine: Engine,
+    appId: int,
+    filter: str = "recent",
+    language: str = "all",
+    purchase_type: str = "all",
+    num_per_page: int = 100,
+    maxPages: int = 50,
+):
     # session object defintiion: for later create safe
     SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
     with SessionLocal() as session:
         startCursor = chooseStartCursor(session, appId)
         runId = startIngestionRun(session, appId, startCursor)
+        totalRows = 0
+        cursor = startCursor
         try:
-
-            reviewData = requestReview(appId, cursor=startCursor)
-
-            insertedRowNum = loadAPIRespondToBronzeLayer(reviewData, runId)
-
-            markIngestionSucesss(
+            for _ in range(maxPages):
+                reviewData = requestReview(appId, cursor=startCursor)
+                # stop condition: nothing returned
+                if len(reviewData.reviews) == 0:
+                    break
+                insertedRowNum = loadAPIRespondToBronzeLayer(reviewData, runId)
+                totalRows += insertedRowNum
+                cursor = reviewData.cursor
+                updateRunningIngestion(
+                    session,
+                    runId,
+                    endCursor=cursor,
+                    rowsFetched=totalRows,
+                    status="running",
+                )
+                session.commit()
+            updateRunningIngestion(
                 session,
                 runId,
-                endCursor=reviewData.cursor,
-                rowsFetched=insertedRowNum,
+                endCursor=cursor,
+                rowsFetched=totalRows,
+                status="success",
             )
             session.commit()
-
         except Exception as e:
             errorType = ""
             errorMessage = ""
@@ -368,9 +419,8 @@ def main():
 
     #     # markIngestionFailure(str(valError))
     DATABASE_URL = "postgresql+psycopg://root:root@localhost:55432/steam_review"
-
     engine = create_engine(DATABASE_URL)
-    checkValidAppId(730)
+    runIngestion(engine, 730)
 
 
 if __name__ == "__main__":
