@@ -1,7 +1,7 @@
 class SteamError(Exception):
     """Base class for all Steam-related errors"""
 
-    errorType = "STEAM_ERROR"
+    error_type = "STEAM_ERROR"
 
     def __init__(self, message: str):
         self.message = message
@@ -15,7 +15,7 @@ class SteamValidationError(SteamError):
     (e.g. wrong appId, filter, language, etc.)
     """
 
-    errorType = "SteamValidation"
+    error_type = "STEAM_VALIDATION"
 
 
 class SteamHTTPError(SteamError):
@@ -23,10 +23,10 @@ class SteamHTTPError(SteamError):
     (non-200 status, timeout, connection issues)
     """
 
-    errorType = "HTTP"
+    error_type = "STEAM_HTTP"
 
-    def __init__(self, message: str, statusCode: int):
-        self.statusCode = statusCode
+    def __init__(self, message: str, status_code: int):
+        self.status_code = status_code
         super().__init__(message)
 
 
@@ -35,4 +35,4 @@ class SteamAPIError(SteamError):
     (success != 1, rate limit, internal API error)
     """
 
-    errorType = "STEAM_API"
+    error_type = "STEAM_API"
