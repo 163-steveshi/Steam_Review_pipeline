@@ -238,11 +238,14 @@ def hash_json(jon_val: dict[str, Any]) -> str:
 
 def choose_start_cursor(session: Session, app_id: int) -> str:
 
-    # get the latest ingestion run token
+    # get the latest ingestion run success cursor
     last_run = (
         session.execute(
             select(IngestionRun)
-            .where(IngestionRun.app_id == app_id, IngestionRun.status == "success")
+            .where(
+                IngestionRun.app_id == app_id,
+                IngestionRun.last_success_cursor.isnot(None),
+            )
             .order_by(desc(IngestionRun.finished_at))
             .limit(1)
         )
