@@ -1,6 +1,15 @@
 import uuid
 from datetime import datetime
-from sqlalchemy import BigInteger, Integer, Text, TIMESTAMP, ForeignKey, String, func
+from sqlalchemy import (
+    BigInteger,
+    Integer,
+    Text,
+    TIMESTAMP,
+    ForeignKey,
+    String,
+    func,
+    text,
+)
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, DeclarativeBase
 
@@ -35,7 +44,9 @@ class IngestionRun(Base):
         server_default=func.now(),
     )
     finished_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
-    rows_fetched: Mapped[int | None] = mapped_column(Integer)
+    rows_fetched: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0")
+    )
     error_type: Mapped[str | None] = mapped_column(Text)
     error_message: Mapped[str | None] = mapped_column(Text)
 

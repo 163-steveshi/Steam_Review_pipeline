@@ -5,7 +5,7 @@ import time
 import hashlib
 import argparse
 from typing import List, Optional, Any
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from sqlalchemy import create_engine, func, select, desc, Engine
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session, sessionmaker
@@ -86,11 +86,12 @@ class Review(BaseModel):
 
 class QuerySummary(BaseModel):
     num_reviews: int
-    review_score: int
-    review_score_desc: str
-    total_positive: int
-    total_negative: int
-    total_reviews: int
+    # below data is not provided when steam api use non cursor like *
+    review_score: int = 0
+    review_score_desc: str = ""
+    total_positive: int = 0
+    total_negative: int = 0
+    total_reviews: int = 0
 
 
 class SteamReviewAPIResponse(BaseModel):
@@ -197,7 +198,7 @@ def loadAPIRespondToBronzeLayer(
         )
 
     insertRowNum = ingestRawReview(session, reviews)
-    print("total " + str(insertRowNum) + "be inserted into the db")
+    print("total " + str(insertRowNum) + " be inserted into the db")
     if insertRowNum == 0:
         print("No more new data be fetched, need to stop the data pipeline")
     return insertRowNum
@@ -250,7 +251,7 @@ def chooseStartCursor(session: Session, appID: int) -> str:
     if lastRun is None:
         print("last run is empty")
         return "*"
-    now = datetime.now()
+    now = datetime.now(timezone.utc)
     # resume from the last cursor
     # if the task finished within 1 hour
     if (
@@ -326,6 +327,7 @@ def startIngestionRun(session: Session, appId: int, startCursor: str) -> uuid.UU
     runId = uuid.uuid4()
     run = IngestionRun(
         run_id=runId,
+        rows_fetched=0,
         app_id=appId,
         status="running",
         start_cursor=startCursor,
@@ -427,7 +429,10 @@ def runIngestion(
                     numPerPage,
                 )
                 # stop condition: the app has no review
-                if reviewData.query_summary.total_reviews == 0:
+                if (
+                    reviewData.query_summary.total_reviews == 0
+                    and reviewData.query_summary.num_reviews == 0
+                ):
 
                     updateRunningIngestion(
                         session,
@@ -439,7 +444,7 @@ def runIngestion(
                     session.commit()
                     break
                 # when ingest all review for the current app
-                if len(reviewData.reviews) == 0:
+                if reviewData.query_summary.num_reviews == 0:
                     break
                 insertedRowNum = loadAPIRespondToBronzeLayer(session, reviewData, runId)
 
@@ -453,6 +458,8 @@ def runIngestion(
                     rowsFetched=insertedRowNum,
                 )
                 session.commit()
+                # sleep to avoid steam api frequenty request limit
+                time.sleep(3)
             updateRunningIngestion(
                 session,
                 runId,
