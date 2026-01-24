@@ -8,7 +8,11 @@ from sqlalchemy.orm import Mapped, mapped_column, DeclarativeBase
 # func: call common SQL functions like count, sum, avg, min, max, lower
 
 
-class IngestionRun(DeclarativeBase):
+class Base(DeclarativeBase):
+    pass
+
+
+class IngestionRun(Base):
     __tablename__ = "ingestion_run"
     __table_args__ = {"schema": "bronze"}
 
@@ -36,7 +40,7 @@ class IngestionRun(DeclarativeBase):
     error_message: Mapped[str | None] = mapped_column(Text)
 
 
-class RawReview(DeclarativeBase):
+class RawReview(Base):
     __tablename__ = "raw_review"
     __table_args__ = {"schema": "bronze"}
 

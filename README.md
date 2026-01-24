@@ -13,3 +13,6 @@ register server--> connection:
 
 conda install -c conda-forge sqlalchemy psycopg
   conda need lib: request, postgresql, sqlalchemy psycopg,  pydantic
+
+
+use python api_extrac.py --app-id 3180070 --cursor "*" --filter recent
