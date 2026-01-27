@@ -55,14 +55,25 @@ class RawReview(Base):
     __tablename__ = "raw_review"
     __table_args__ = {"schema": "bronze"}
 
+    raw_id: Mapped[int] = mapped_column(
+        BigInteger,
+        unique=True,
+        nullable=False,
+        autoincrement=True,  # marked as managed by DB
+    )
+
     app_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     review_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     hash_raw_json: Mapped[str] = mapped_column(String(64), primary_key=True)
-
+    inserted_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
     raw_json: Mapped[dict] = mapped_column(JSONB, nullable=False)
 
     run_id: Mapped[uuid.UUID | None] = mapped_column(
         PG_UUID(as_uuid=True),
-        ForeignKey("bronze.ingestion_run.run_id", ondelete="SET NULL"),
+        ForeignKey("bronze.ingestion_run.run_id", ondelete="SET NOT NULL"),
         nullable=True,
     )

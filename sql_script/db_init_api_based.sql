@@ -20,21 +20,29 @@ CREATE TABLE IF NOT EXISTS bronze.ingestion_run (
 );
 
 CREATE TABLE IF NOT EXISTS bronze.raw_review (
+  raw_id BIGINT GENERATED ALWAYS AS IDENTITY UNIQUE, -- used for scheule transformation task
   app_id BIGINT NOT NULL,
   review_id BIGINT NOT NULL,
   hash_raw_json VARCHAR(64) NOT NULL,  -- hex SHA-256 length for check updated review
   raw_json JSONB NOT NULL,
+  -- used for pipeline broken anaylyze, data delay, tell pipeline healthy status
+  -- also ue to compare API and UI Pipelne 
+  -- freshness lag, extraction delay, consistency
+  inserted_at timestamptz Not NULL DEFAULT now(), 
   run_id UUID 
     CONSTRAINT fk_raw_review_run
     REFERENCES bronze.ingestion_run(run_id) 
-    ON DELETE SET NULL,
+    ON DELETE SET NOT NULL, --not deelte it but need for recording the transformation layer
   PRIMARY KEY(app_id, review_id, hash_raw_json)
 );
 
-
+-- raw id for transformation task schedule, run_id for failure analysis
+CREATE INDEX IF NOT EXISTS idx_raw_review_raw_id ON bronze.raw_review(raw_id);
+CREATE INDEX IF NOT EXISTS idx_raw_review_run_id ON bronze.raw_review(run_id);
 
 CREATE SCHEMA IF NOT EXISTS silver;
 
+-- doc abput field explaination https://partner.steamgames.com/doc/store/getreviews
 CREATE TABLE IF NOT EXISTS silver.clean_latest_review (
   app_id BIGINT NOT NULL,
   review_id BIGINT NOT NULL,
@@ -42,11 +50,11 @@ CREATE TABLE IF NOT EXISTS silver.clean_latest_review (
   review_text TEXT NOT NULL DEFAULT '',
   timestamp_created timestamptz NOT NULL,
   timestamp_updated timestamptz NOT NULL,
-  voted_up BOOLEAN NOT NULL, 
+  voted_positive BOOLEAN NOT NULL, --entry for voted_up
   votes_helpful INTEGER, 
   votes_funny INTEGER,
   weighted_vote_score DOUBLE PRECISION,
-  comment_count INTEGER,
+  review_comment_count INTEGER, --entry for comments_count
   steam_purchase BOOLEAN NOT NULL, 
   received_for_free BOOLEAN NOT NULL, 
   written_during_early_access BOOLEAN NOT NULL, 
@@ -58,11 +66,25 @@ CREATE TABLE IF NOT EXISTS silver.clean_latest_review_player_info (
   app_id BIGINT NOT NULL,
   review_id BIGINT NOT NULL,
   steam_user_id BIGINT NOT NULL,
+  num_games_owned BIGNINT NOT NULL,
+  total_playtime_hr: INTEGER NOT NULL,  --playtime_forver
+  playtime_last_two_weeks_hr INTEGER NOT NULL,
+  playtime_at_review_hr INTEGER NOT NULL,
+  last_played timestamptz NOT NULL,
+  
   PRIMARY KEY(app_id, review_id),
   CONSTRAINT fk_playerinfo_review
     FOREIGN KEY (app_id, review_id)
     REFERENCES silver.clean_latest_review (app_id, review_id)
     ON DELETE CASCADE
 );
+
+-- log for tracking the transformation
+CREATE TABLE IF NOT EXISTS silver.transform_log ( 
+  pipeline_name TEXT PRIMARY KEY, 
+  last_raw_id_processed BIGINT NOT NULL DEFAULT 0, 
+  finished_atd_at timestamptz NOT NULL DEFAULT now() 
+);
+
 
 COMMIT;
