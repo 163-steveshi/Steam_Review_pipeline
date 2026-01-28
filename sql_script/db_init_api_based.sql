@@ -71,7 +71,7 @@ CREATE TABLE IF NOT EXISTS silver.clean_latest_review_player_info (
   playtime_last_two_weeks_hr INTEGER NOT NULL,
   playtime_at_review_hr INTEGER NOT NULL,
   last_played timestamptz NOT NULL,
-  
+  source_raw_id BIGINT NOT NULL,
   PRIMARY KEY(app_id, review_id),
   CONSTRAINT fk_playerinfo_review
     FOREIGN KEY (app_id, review_id)
