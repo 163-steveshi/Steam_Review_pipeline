@@ -77,7 +77,7 @@ class RawReview(Base):
 
     run_id: Mapped[uuid.UUID | None] = mapped_column(
         PG_UUID(as_uuid=True),
-        ForeignKey("bronze.ingestion_run.run_id", ondelete="SET NOT NULL"),
+        ForeignKey("bronze.ingestion_run.run_id", ondelete="RESTRICT"),
         nullable=True,
     )
 
@@ -149,8 +149,8 @@ class CleanLatestReviewPlayerInfo(Base):
     )
 
 
-class TransformLog(Base):
-    __tablename__ = "transform_log"
+class TransformCheckpoint(Base):
+    __tablename__ = "transform_checkpoint"
     __table_args__ = {"schema": "silver"}
 
     pipeline_name: Mapped[str] = mapped_column(Text, primary_key=True)
@@ -159,7 +159,7 @@ class TransformLog(Base):
     )
 
     # Column name matches your DDL ("finished_atd_at")
-    finished_atd_at: Mapped[datetime] = mapped_column(
+    finished_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True),
         nullable=False,
         server_default=func.now(),

@@ -4,7 +4,7 @@ CREATE SCHEMA IF NOT EXISTS bronze;
 
 --Raw Review Table
 
-
+--should never delete the meta data
 CREATE TABLE IF NOT EXISTS bronze.ingestion_run (
   app_id BIGINT NOT NULL,
   run_id UUID PRIMARY KEY,
@@ -32,7 +32,7 @@ CREATE TABLE IF NOT EXISTS bronze.raw_review (
   run_id UUID 
     CONSTRAINT fk_raw_review_run
     REFERENCES bronze.ingestion_run(run_id) 
-    ON DELETE SET NOT NULL, --not deelte it but need for recording the transformation layer
+    ON DELETE RESTRICT, --delete the raw review should not delete the ingestion run as it as metadata table
   PRIMARY KEY(app_id, review_id, hash_raw_json)
 );
 
@@ -67,11 +67,11 @@ CREATE TABLE IF NOT EXISTS silver.clean_latest_review_player_info (
   review_id BIGINT NOT NULL,
   steam_user_id BIGINT NOT NULL,
   num_games_owned BIGNINT NOT NULL,
-  total_playtime_hr: INTEGER NOT NULL,  --playtime_forver
+  total_playtime_hr INTEGER NOT NULL,  --playtime_forver
   playtime_last_two_weeks_hr INTEGER NOT NULL,
   playtime_at_review_hr INTEGER NOT NULL,
   last_played timestamptz NOT NULL,
-  source_raw_id BIGINT NOT NULL,
+  source_raw_id BIGINT NOT NULL, --for tracking source it comes from
   PRIMARY KEY(app_id, review_id),
   CONSTRAINT fk_playerinfo_review
     FOREIGN KEY (app_id, review_id)
@@ -80,10 +80,10 @@ CREATE TABLE IF NOT EXISTS silver.clean_latest_review_player_info (
 );
 
 -- log for tracking the transformation
-CREATE TABLE IF NOT EXISTS silver.transform_log ( 
+CREATE TABLE IF NOT EXISTS silver.transform_checkpoint ( 
   pipeline_name TEXT PRIMARY KEY, 
   last_raw_id_processed BIGINT NOT NULL DEFAULT 0, 
-  finished_atd_at timestamptz NOT NULL DEFAULT now() 
+  finished_at timestamptz NOT NULL DEFAULT now() 
 );
 
 
