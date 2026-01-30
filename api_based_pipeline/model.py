@@ -16,6 +16,9 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, DeclarativeBase
 
+# industry used construct data model via class definition like pydantic
+from pydantic import BaseModel
+from typing import List
 
 # func: call common SQL functions like count, sum, avg, min, max, lower
 
@@ -164,3 +167,50 @@ class TransformCheckpoint(Base):
         nullable=False,
         server_default=func.now(),
     )
+
+
+# data model for type definition
+class Author(BaseModel):
+    steamid: str
+    num_games_owned: int
+    num_reviews: int
+    playtime_forever: int
+    playtime_last_two_weeks: int
+    playtime_at_review: int
+    last_played: int
+
+
+class Review(BaseModel):
+    recommendationid: int
+    author: Author
+    language: str
+    review: str
+    timestamp_created: int
+    timestamp_updated: int
+    voted_up: bool
+    votes_up: int
+    votes_funny: int
+    weighted_vote_score: float
+    comment_count: int
+    steam_purchase: bool
+    received_for_free: bool
+    written_during_early_access: bool
+    primarily_steam_deck: bool
+
+
+class QuerySummary(BaseModel):
+    num_reviews: int
+    # below data is not provided when steam api use non cursor like *
+    review_score: int = 0
+    review_score_desc: str = ""
+    total_positive: int = 0
+    total_negative: int = 0
+    total_reviews: int = 0
+
+
+class SteamReviewAPIResponse(BaseModel):
+    success: int
+    query_summary: QuerySummary
+    reviews: List[Review]
+    cursor: str
+    app_id: int

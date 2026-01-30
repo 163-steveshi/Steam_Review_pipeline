@@ -13,9 +13,12 @@ from sqlalchemy.orm import Session, sessionmaker
 # # python coding habit: design the data classes for declare stored data type
 # # rather than make regular oop object
 # from dataclasses import dataclass
-# industry used construct data model via class definition like pydantic
-from pydantic import BaseModel
-from api_based_pipeline.model import RawReview, IngestionRun
+
+from api_based_pipeline.model import (
+    RawReview,
+    IngestionRun,
+    SteamReviewAPIResponse,
+)
 from api_error import *
 
 
@@ -54,52 +57,6 @@ ALLOWED_LANGUAGE: set[str] = {
     "uk",
     "vi",
 }
-
-
-class Author(BaseModel):
-    steamid: str
-    num_games_owned: Optional[int]
-    num_reviews: Optional[int]
-    playtime_forever: Optional[int]
-    playtime_last_two_weeks: Optional[int]
-    playtime_at_review: Optional[int]
-    last_played: Optional[int]
-
-
-class Review(BaseModel):
-    recommendationid: str
-    author: Author
-    language: str
-    review: str
-    timestamp_created: int
-    timestamp_updated: int
-    voted_up: bool
-    votes_up: int
-    votes_funny: int
-    weighted_vote_score: float
-    comment_count: int
-    steam_purchase: bool
-    received_for_free: bool
-    written_during_early_access: bool
-    primarily_steam_deck: bool
-
-
-class QuerySummary(BaseModel):
-    num_reviews: int
-    # below data is not provided when steam api use non cursor like *
-    review_score: int = 0
-    review_score_desc: str = ""
-    total_positive: int = 0
-    total_negative: int = 0
-    total_reviews: int = 0
-
-
-class SteamReviewAPIResponse(BaseModel):
-    success: int
-    query_summary: QuerySummary
-    reviews: List[Review]
-    cursor: str
-    app_id: int
 
 
 def request_review(
