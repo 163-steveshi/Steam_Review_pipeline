@@ -1,5 +1,5 @@
 from sqlalchemy.orm import Session, sessionmaker
-from sqlalchemy import create_engine, func, select, desc, Engine, and_, or_
+from sqlalchemy import create_engine, func, select, asc, Engine, and_, or_
 from api_based_pipeline.model import (
     TransformCheckpoint,
     RawReview,
@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import SQLAlchemyError
 import logging
+import argparse
 
 log = logging.getLogger(__name__)
 
@@ -34,6 +35,7 @@ def choose_resumed_point(session: Session, pipeline_name: str) -> int:
                 .where(
                     RawReview.raw_id > last_transformed_raw_review_id,
                 )
+                .order_by(asc(RawReview.raw_id))
                 .limit(1)
             )
             .scalars()
@@ -44,7 +46,7 @@ def choose_resumed_point(session: Session, pipeline_name: str) -> int:
         # here mean all raw reviews are currently cleaned
         return -1
     # no clean record yet start with 1st one
-    return 0
+    return 1
 
 
 def choose_transform_task_end_point(session: Session) -> int:
@@ -60,12 +62,12 @@ def choose_transform_task_end_point(session: Session) -> int:
 
 
 def read_raw_reivew(
-    session: Session, last_id: int, stop_id: int, batch_size: int = 1000
+    session: Session, start_id: int, stop_id: int, batch_size: int = 1000
 ) -> tuple[Sequence[RawReview], int]:
     raw_reviews: Sequence[RawReview] = (
         session.execute(
             select(RawReview)
-            .where(and_(RawReview.raw_id > last_id, RawReview.raw_id <= stop_id))
+            .where(and_(RawReview.raw_id >= start_id, RawReview.raw_id <= stop_id))
             .order_by(RawReview.raw_id)
             .limit(batch_size)
         )
@@ -73,7 +75,7 @@ def read_raw_reivew(
         .all()
     )
     if not raw_reviews:
-        return [], last_id
+        return [], start_id
     new_last_id = raw_reviews[-1].raw_id
     return raw_reviews, new_last_id
 
@@ -117,7 +119,9 @@ def parse_raw_review(raw_review: Sequence[RawReview]) -> tuple[list[dict], list[
                 "total_playtime_hr": cleaned_review_info.author.playtime_forever,
                 "playtime_last_two_weeks_hr": cleaned_review_info.author.playtime_last_two_weeks,
                 "playtime_at_review_hr": cleaned_review_info.author.playtime_at_review,
-                "last_played": cleaned_review_info.author.last_played,
+                "last_played": datetime.fromtimestamp(
+                    cleaned_review_info.author.last_played, tz=timezone.utc
+                ),
             }
         )
     return cleaned_reviews, cleaned_player_infos
@@ -198,7 +202,83 @@ def insert_cleaned_review(
 
         # return inserted_count
         return review_inserted_count, player_info_inserted_count
-    except SQLAlchemyError as _:
+    except SQLAlchemyError as e:
         # session.rollback() TODO: decideing; for trasnfroemation logic people use the with session.begin(): auto commit and auto rollback
         log.exception("Upsert failed in insert_cleaned_review")
-        raise
+        raise e
+
+
+def update_transform_record(
+    session: Session, pipeline_name: str, last_raw_id: int, begin_raw_id: int
+):
+    # for non-first time updatred
+    if begin_raw_id != 1:
+        session.query(TransformCheckpoint).filter(
+            TransformCheckpoint.pipeline_name == pipeline_name
+        ).update(
+            {
+                TransformCheckpoint.last_raw_id_processed: last_raw_id,
+                TransformCheckpoint.finished_at: func.now(),
+            }
+        )
+    else:
+        new_transform_record = TransformCheckpoint(
+            pipeline_name=pipeline_name,
+            last_raw_id_processed=last_raw_id,
+            finished_at=func.now(),
+        )
+        session.add(new_transform_record)
+
+
+def run_transform(engine: Engine, pipeline_name: str):
+
+    SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+    with SessionLocal() as session:
+        resumed_raw_id = choose_resumed_point(session, pipeline_name)
+        if resumed_raw_id == -1:
+            print("No More review to be transformed. Task end!")
+            return
+        end_raw_id = choose_transform_task_end_point(session)
+        if end_raw_id == -1:
+            print("No review to be ingest, task is now ended")
+            return
+    while resumed_raw_id <= end_raw_id:
+        try:
+
+            with SessionLocal.begin() as session:
+                raw_reviews, batch_end_raw_id = read_raw_reivew(
+                    session, resumed_raw_id, end_raw_id
+                )
+                if len(raw_reviews) == 0:
+                    print(("No review to be ingest, task is now ended"))
+                    log.exception("selection tasked failed in bronze.raw_reivew")
+                    return
+                cleaned_reviews, cleaned_player_infos = parse_raw_review(raw_reviews)
+                review_inserted_count, player_info_inserted_count = (
+                    insert_cleaned_review(
+                        session, cleaned_reviews, cleaned_player_infos
+                    )
+                )
+                print(review_inserted_count, " review(s) are inserted")
+                print(player_info_inserted_count, " player info(s) are inserted")
+
+                #
+                update_transform_record(
+                    session, pipeline_name, batch_end_raw_id, resumed_raw_id
+                )
+            resumed_raw_id = batch_end_raw_id + 1
+        except SQLAlchemyError as e:
+            raise e
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--pipeline_name", default="raw_to_silver")
+    args = parser.parse_args()
+    DATABASE_URL = "postgresql+psycopg://root:root@localhost:55432/steam_review"
+    engine = create_engine(DATABASE_URL)
+    run_transform(engine, args.pipeline_name)
+
+
+if __name__ == "__main__":
+    main()

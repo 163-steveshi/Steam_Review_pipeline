@@ -59,6 +59,7 @@ CREATE TABLE IF NOT EXISTS silver.clean_latest_review (
   received_for_free BOOLEAN NOT NULL, 
   written_during_early_access BOOLEAN NOT NULL, 
   primarily_play_on_steam_deck BOOLEAN NOT NULL, 
+  source_raw_id BIGINT NOT NULL, --for tracking source it comes from
   PRIMARY KEY(app_id, review_id)
 );
 
@@ -66,12 +67,11 @@ CREATE TABLE IF NOT EXISTS silver.clean_latest_review_player_info (
   app_id BIGINT NOT NULL,
   review_id BIGINT NOT NULL,
   steam_user_id BIGINT NOT NULL,
-  num_games_owned BIGNINT NOT NULL,
+  num_games_owned BIGINT NOT NULL,
   total_playtime_hr INTEGER NOT NULL,  --playtime_forver
   playtime_last_two_weeks_hr INTEGER NOT NULL,
   playtime_at_review_hr INTEGER NOT NULL,
   last_played timestamptz NOT NULL,
-  source_raw_id BIGINT NOT NULL, --for tracking source it comes from
   PRIMARY KEY(app_id, review_id),
   CONSTRAINT fk_playerinfo_review
     FOREIGN KEY (app_id, review_id)

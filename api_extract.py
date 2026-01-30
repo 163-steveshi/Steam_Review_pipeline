@@ -158,8 +158,6 @@ def load_api_respond_to_bronze_layer(
 
     insert_row_num = ingest_raw_review(session, reviews)
     print("total " + str(insert_row_num) + " be inserted into the db")
-    if insert_row_num == 0:
-        print("No more new data be fetched, need to stop the data pipeline")
     return insert_row_num
 
 
@@ -347,6 +345,7 @@ def update_running_ingestion(
 
 
 # run Ingestion ()
+# TODO: need update with session begin
 def run_ingestion(
     engine: Engine,
     app_id: int,
@@ -365,6 +364,7 @@ def run_ingestion(
         cursor = start_cursor
         # Flag determine if the app reivew ingestion is skipped or not
         skipped_ingestion = False
+        retry = True  # in case steam api return 0 review in one respond give another shot before mark it finished
         try:
             for _ in range(max_pages):
                 reviewData = request_reviews_with_fallback(
@@ -394,6 +394,9 @@ def run_ingestion(
                     break
                 # when ingest all review for the current app
                 if reviewData.query_summary.num_reviews == 0:
+                    if retry:
+                        retry = False
+                        continue
                     break
                 insertedRowNum = load_api_respond_to_bronze_layer(
                     session, reviewData, run_id
@@ -430,6 +433,10 @@ def run_ingestion(
             )
             session.commit()
             raise e
+        except Exception as e:
+            mark_ingestion_failure(session, type(e).__name__, str(e), run_id)
+            session.commit()
+            raise
 
 
 def main():

@@ -3,4 +3,4 @@ psql \
   -p 55432 \
   -U root \
   -d steam_review \
-  -f sql/db_init.sql
+  -f sql_script/db_init_api_based.sql
