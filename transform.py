@@ -1,5 +1,5 @@
 from sqlalchemy.orm import Session, sessionmaker
-from sqlalchemy import create_engine, func, select, asc, Engine, and_, or_
+from sqlalchemy import create_engine, func, select, asc, desc, Engine, and_, or_
 from api_based_pipeline.model import (
     TransformCheckpoint,
     RawReview,
@@ -28,7 +28,7 @@ def choose_resumed_point(session: Session, pipeline_name: str) -> int:
         .one_or_none()
     )
 
-    if last_transformed_raw_review_id:
+    if last_transformed_raw_review_id is not None:
         resume_id = (
             session.execute(
                 select(RawReview.raw_id)
@@ -68,7 +68,9 @@ def read_raw_reivew(
         session.execute(
             select(RawReview)
             .where(and_(RawReview.raw_id >= start_id, RawReview.raw_id <= stop_id))
-            .order_by(RawReview.raw_id)
+            .order_by(
+                asc(RawReview.raw_id),
+            )
             .limit(batch_size)
         )
         .scalars()
@@ -76,8 +78,22 @@ def read_raw_reivew(
     )
     if not raw_reviews:
         return [], start_id
-    new_last_id = raw_reviews[-1].raw_id
-    return raw_reviews, new_last_id
+
+    # TODO: when move logic to the dbt, Alternative SQL implementation using window functions is possible for larger batches.
+    latest_reviews = {}
+    for r in raw_reviews:
+        key = (r.app_id, r.review_id)
+        # if we find a much new review: e.g a new updated date or ingest id
+        # update the latest rview
+        review = latest_reviews.get(key)
+        if review is None or (r.inserted_at, r.raw_id) > (
+            review.inserted_at,
+            review.raw_id,
+        ):
+            latest_reviews[key] = r
+    raw_reviews = list(latest_reviews.values())
+    batch_end_raw_id = raw_reviews[-1].raw_id
+    return raw_reviews, batch_end_raw_id
 
 
 def parse_raw_review(raw_review: Sequence[RawReview]) -> tuple[list[dict], list[dict]]:
@@ -203,7 +219,6 @@ def insert_cleaned_review(
         # return inserted_count
         return review_inserted_count, player_info_inserted_count
     except SQLAlchemyError as e:
-        # session.rollback() TODO: decideing; for trasnfroemation logic people use the with session.begin(): auto commit and auto rollback
         log.exception("Upsert failed in insert_cleaned_review")
         raise e
 
@@ -273,7 +288,7 @@ def run_transform(engine: Engine, pipeline_name: str):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--pipeline_name", default="raw_to_silver")
+    parser.add_argument("--pipeline_name", default="bronze_to_silver")
     args = parser.parse_args()
     DATABASE_URL = "postgresql+psycopg://root:root@localhost:55432/steam_review"
     engine = create_engine(DATABASE_URL)
