@@ -1,6 +1,6 @@
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy import create_engine, func, select, asc, desc, Engine, and_, or_
-from api_based_pipeline.model import (
+from api_based_pipeline.common.model import (
     TransformCheckpoint,
     RawReview,
     Review,

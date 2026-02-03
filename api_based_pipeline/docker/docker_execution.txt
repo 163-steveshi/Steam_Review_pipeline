@@ -1,0 +1,1 @@
+docker build -f api_based_pipeline/docker/ingestion/Dockerfile -t steam-ingestion .

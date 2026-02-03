@@ -447,7 +447,7 @@ def main():
     parser.add_argument("--review_type", default="all")
     parser.add_argument("--purchase_type", default="all")
     parser.add_argument("--num_per_page", type=int, default=100)
-    parser.add_argument("--max-pages", type=int, default=50)
+    parser.add_argument("--max_pages", type=int, default=50)
     args = parser.parse_args()
     DATABASE_URL = "postgresql+psycopg://root:root@localhost:55432/steam_review"
     engine = create_engine(DATABASE_URL)
