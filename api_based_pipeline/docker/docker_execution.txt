@@ -21,3 +21,10 @@ docker run --rm --network yourfolder_default \
 
 # rebuild a image
 docker build -t steam-review-ingestion:latest -f api_based_pipeline/docker/ingestion/Dockerfile .
+
+
+docker build -f api_based_pipeline/docker/transform/Dockerfile -t steam-review-transform .
+
+docker run --rm --network comp4905_project_default \
+  -e DATABASE_URL="postgresql+psycopg://root:root@pgdatabase:5432/steam_review" \
+  steam-review-transform

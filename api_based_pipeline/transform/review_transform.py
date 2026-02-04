@@ -13,6 +13,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import SQLAlchemyError
 import logging
 import argparse
+import os
 
 log = logging.getLogger(__name__)
 
@@ -62,7 +63,7 @@ def choose_transform_task_end_point(session: Session) -> int:
 
 
 def read_raw_reivew(
-    session: Session, start_id: int, stop_id: int, batch_size: int = 1000
+    session: Session, start_id: int, stop_id: int, batch_size: int
 ) -> tuple[Sequence[RawReview], int]:
     raw_reviews: Sequence[RawReview] = (
         session.execute(
@@ -245,7 +246,7 @@ def update_transform_record(
         session.add(new_transform_record)
 
 
-def run_transform(engine: Engine, pipeline_name: str):
+def run_transform(engine: Engine, pipeline_name: str, batch_size: int):
 
     SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
     with SessionLocal() as session:
@@ -262,7 +263,7 @@ def run_transform(engine: Engine, pipeline_name: str):
 
             with SessionLocal.begin() as session:
                 raw_reviews, batch_end_raw_id = read_raw_reivew(
-                    session, resumed_raw_id, end_raw_id
+                    session, resumed_raw_id, end_raw_id, batch_size
                 )
                 if len(raw_reviews) == 0:
                     print(("No review to be ingest, task is now ended"))
@@ -289,10 +290,13 @@ def run_transform(engine: Engine, pipeline_name: str):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--pipeline_name", default="bronze_to_silver")
+    parser.add_argument("--batch_size", type=int, default=1000)
     args = parser.parse_args()
-    DATABASE_URL = "postgresql+psycopg://root:root@localhost:55432/steam_review"
+    DATABASE_URL = os.getenv(
+        "DATABASE_URL", "postgresql+psycopg://root:root@pgdatabase:5432/steam_review"
+    )
     engine = create_engine(DATABASE_URL)
-    run_transform(engine, args.pipeline_name)
+    run_transform(engine, args.pipeline_name, args.batch_size)
 
 
 if __name__ == "__main__":
