@@ -2,6 +2,7 @@ FROM python:3.10-slim
 
 ENV PYTHONUNBUFFERED=1
 WORKDIR /app
+ENV PYTHONPATH=/app
 
 # (Optional but common) needed for some wheels / postgres builds
 RUN apt-get update && apt-get install -y \
@@ -18,4 +19,4 @@ COPY api_based_pipeline/ingestion /app/ingestion
 COPY api_based_pipeline/common/model.py /app/api_based_pipeline/common/model.py
 
 # Run extract logic
-CMD ["python", "-m", "ingestion.api_extract"]
+ENTRYPOINT ["python", "-m", "ingestion.api_extract"]

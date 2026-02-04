@@ -1,3 +1,4 @@
+import os
 import requests
 import uuid
 import json
@@ -19,7 +20,7 @@ from api_based_pipeline.common.model import (
     IngestionRun,
     SteamReviewAPIResponse,
 )
-from api_error import *
+from .api_error import *
 
 
 PURCHASE_TYPE: set[str] = {"all", "non_steam_purchase", "steam"}
@@ -449,7 +450,9 @@ def main():
     parser.add_argument("--num_per_page", type=int, default=100)
     parser.add_argument("--max_pages", type=int, default=50)
     args = parser.parse_args()
-    DATABASE_URL = "postgresql+psycopg://root:root@localhost:55432/steam_review"
+    DATABASE_URL = os.getenv(
+        "DATABASE_URL", "postgresql+psycopg://root:root@pgdatabase:5432/steam_review"
+    )
     engine = create_engine(DATABASE_URL)
     run_ingestion(
         engine,

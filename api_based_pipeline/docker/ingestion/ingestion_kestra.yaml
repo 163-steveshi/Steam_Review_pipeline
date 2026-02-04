@@ -1,16 +1,22 @@
 id: reiew_ingestion
 namespace: steam_review_pipeline
 
-description: This flow will install the pip package in a Docker container, and use kestra's Python library to generate outputs (number of downloads of the Kestra Docker image) and metrics (duration of the script).
+description: This yaml schedule to run steam raw review ingestion task to the db. Recommend running it every 30 mins
+
+triggers:
+  - id: every_30_minutes
+    type: io.kestra.plugin.core.trigger.Schedule
+    cron: "*/30 * * * *" #set up to run every 30 mins
+    timezone: America/Toronto
 
 tasks:
-  - id: collect_stats
-    type: io.kestra.plugin.scripts.python.Script
-    taskRunner:
-      type: io.kestra.plugin.scripts.runner.docker.Docker
-    containerImage: steam-review-ingestion
-    dependencies:
-      - requests
-      - kestra
-    script: |
-      python api_extract.py
+  - id: run_ingestion_container
+    type: io.kestra.plugin.docker.Run
+    containerImage: steam-review-ingestion:latest
+    # allow kestra to run the docker image in side the docker compose network
+    networkMode: comp4905_project_default
+    env:
+      DATABASE_URL: "postgresql+psycopg://root:root@pgdatabase:5432/steam_review"
+    commands:
+      - "--app_id"
+      - "730"
