@@ -15,9 +15,9 @@ inputs:
     defaults: 1000
 
 triggers:
-  - id: every_30_minutes
+  - id: every_1_hour
     type: io.kestra.plugin.core.trigger.Schedule
-    cron: "0 0 * * * *" #set up to run every 1 hour
+    cron: "0 0 * * * " #set up to run every 1 hour
     timezone: America/Toronto
 
 tasks:

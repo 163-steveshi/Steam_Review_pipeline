@@ -5,7 +5,7 @@ import json
 import time
 import hashlib
 import argparse
-from typing import List, Optional, Any
+from typing import List, Any
 from datetime import datetime, timedelta, timezone
 from sqlalchemy import create_engine, func, select, desc, Engine
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -345,8 +345,6 @@ def update_running_ingestion(
         )
 
 
-# run Ingestion ()
-# TODO: need update with session begin
 def run_ingestion(
     engine: Engine,
     app_id: int,
@@ -366,9 +364,10 @@ def run_ingestion(
         # Flag determine if the app reivew ingestion is skipped or not
         skipped_ingestion = False
         retry = True  # in case steam api return 0 review in one respond give another shot before mark it finished
+        total_ingested_review = 0
         try:
             for _ in range(max_pages):
-                reviewData = request_reviews_with_fallback(
+                review_data = request_reviews_with_fallback(
                     app_id,
                     filter,
                     language,
@@ -379,8 +378,8 @@ def run_ingestion(
                 )
                 # stop condition: the app has no review
                 if (
-                    reviewData.query_summary.total_reviews == 0
-                    and reviewData.query_summary.num_reviews == 0
+                    review_data.query_summary.total_reviews == 0
+                    and review_data.query_summary.num_reviews == 0
                 ):
 
                     update_running_ingestion(
@@ -394,23 +393,23 @@ def run_ingestion(
                     skipped_ingestion = True
                     break
                 # when ingest all review for the current app
-                if reviewData.query_summary.num_reviews == 0:
+                if review_data.query_summary.num_reviews == 0:
                     if retry:
                         retry = False
                         continue
                     break
-                insertedRowNum = load_api_respond_to_bronze_layer(
-                    session, reviewData, run_id
+                inserted_row_num = load_api_respond_to_bronze_layer(
+                    session, review_data, run_id
                 )
-
+                total_ingested_review += inserted_row_num
                 # update the running cursor
-                cursor = reviewData.cursor
+                cursor = review_data.cursor
                 update_running_ingestion(
                     session,
                     run_id,
                     cursor,
                     "running",
-                    rows_fetched=insertedRowNum,
+                    rows_fetched=inserted_row_num,
                 )
                 session.commit()
                 # sleep to avoid steam api frequenty request limit
@@ -424,6 +423,7 @@ def run_ingestion(
                     "success",
                 )
                 session.commit()
+            print("total: " + str(total_ingested_review) + " review(s) are ingested")
         except SteamError as e:
 
             mark_ingestion_failure(
@@ -468,18 +468,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-# example of bad
-bad_id = {
-    "success": 1,
-    "query_summary": {
-        "num_reviews": 0,
-        "review_score": 0,
-        "review_score_desc": "No user reviews",
-        "total_positive": 0,
-        "total_negative": 0,
-        "total_reviews": 0,
-    },
-    "reviews": [],
-    "cursor": "*",
-}

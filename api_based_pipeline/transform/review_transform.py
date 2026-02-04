@@ -258,6 +258,8 @@ def run_transform(engine: Engine, pipeline_name: str, batch_size: int):
         if end_raw_id == -1:
             print("No review to be ingest, task is now ended")
             return
+        total_transformed_review = 0
+        total_transformed_player_info = 0
     while resumed_raw_id <= end_raw_id:
         try:
 
@@ -278,13 +280,18 @@ def run_transform(engine: Engine, pipeline_name: str, batch_size: int):
                 print(review_inserted_count, " review(s) are inserted")
                 print(player_info_inserted_count, " player info(s) are inserted")
 
-                #
+                total_transformed_review += review_inserted_count
+                total_transformed_player_info += player_info_inserted_count
                 update_transform_record(
                     session, pipeline_name, batch_end_raw_id, resumed_raw_id
                 )
             resumed_raw_id = batch_end_raw_id + 1
         except SQLAlchemyError as e:
             raise e
+    print("total: " + str(total_transformed_review) + " review(s) are inserted")
+    print(
+        "total: " + str(total_transformed_player_info) + " player info(s) are inserted"
+    )
 
 
 def main():
