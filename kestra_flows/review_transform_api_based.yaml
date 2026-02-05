@@ -1,0 +1,35 @@
+id: reiew_transform
+namespace: steam_review_pipeline
+
+description: This yaml schedule to run steam raw review transform task to the db. Recommend running it every 1 hour
+
+inputs:
+  - id: pipeline_name
+    type: STRING
+    required: true
+    defaults: "bronze_to_silver"
+
+  - id: batch_size
+    type: INT
+    required: true
+    defaults: 1000
+
+triggers:
+  - id: every_1_hour
+    type: io.kestra.plugin.core.trigger.Schedule
+    cron: "0 0 * * * " #set up to run every 1 hour
+    timezone: America/Toronto
+
+tasks:
+  - id: run_ingestion_container
+    type: io.kestra.plugin.docker.Run
+    containerImage: steam-review-transform:latest
+    # allow kestra to run the docker image in side the docker compose network
+    networkMode: comp4905_project_default
+    env:
+      DATABASE_URL: "postgresql+psycopg://root:root@pgdatabase:5432/steam_review"
+    commands:
+      - "--pipeline_name"
+      - "{{ inputs.pipeline_name }}"
+      - "--batch_size"
+      - "{{ inputs.batch_size }}"

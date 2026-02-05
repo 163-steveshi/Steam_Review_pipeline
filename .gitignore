@@ -5,3 +5,4 @@ pgadmin_data/
 steam_reviews_postgres_data/
 __pycache__/
 *.pyc
+*.env
