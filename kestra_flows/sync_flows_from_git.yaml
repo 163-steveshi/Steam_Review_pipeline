@@ -13,7 +13,7 @@ tasks:
     dryRun: false
 
 triggers:
-  - id: every_full_hour
+  - id: update_flow_every_hour
     type: io.kestra.plugin.core.trigger.Schedule
-    cron: "* 0 * * *"
+    cron: "@hourly"
     recoverMissedSchedules: NONE
