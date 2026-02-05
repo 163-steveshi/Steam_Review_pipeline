@@ -61,6 +61,7 @@ services:
           url: http://localhost:8080/
       ENV_GITHUB_ACCESS_TOKEN: ${GITHUB_ACCESS_TOKEN}
       ENV_GITHUB_USERNAME: ${GITHUB_USERNAME}
+      ENV_GITHUB_REPO_URL: ${GITHUB_REPO_URL}
     ports:
       - "8080:8080"
       - "8081:8081"

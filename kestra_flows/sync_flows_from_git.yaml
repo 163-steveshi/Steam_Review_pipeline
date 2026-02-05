@@ -6,7 +6,7 @@ tasks:
     type: io.kestra.plugin.git.SyncFlows
     username:  "{{envs.github_username}}"
     password: "{{ envs.github_access_token}}"
-    url: https://github.com/163-steveshi/COMP4905
+    url: "{{ envs.github_repo_url}}"
     branch: main
     targetNamespace: steam_review_pipeline
     gitDirectory: kestra_flows
