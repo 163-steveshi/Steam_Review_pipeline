@@ -299,9 +299,8 @@ def main():
     parser.add_argument("--pipeline_name", default="bronze_to_silver")
     parser.add_argument("--batch_size", type=int, default=1000)
     args = parser.parse_args()
-    DATABASE_URL = os.getenv(
-        "DATABASE_URL", "postgresql+psycopg://root:root@pgdatabase:5432/steam_review"
-    )
+    DATABASE_URL = os.environ["DATABASE_URL"]
+
     engine = create_engine(DATABASE_URL)
     run_transform(engine, args.pipeline_name, args.batch_size)
 

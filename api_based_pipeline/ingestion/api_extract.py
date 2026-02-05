@@ -450,9 +450,7 @@ def main():
     parser.add_argument("--num_per_page", type=int, default=100)
     parser.add_argument("--max_pages", type=int, default=50)
     args = parser.parse_args()
-    DATABASE_URL = os.getenv(
-        "DATABASE_URL", "postgresql+psycopg://root:root@pgdatabase:5432/steam_review"
-    )
+    DATABASE_URL = os.environ["DATABASE_URL"]
     engine = create_engine(DATABASE_URL)
     run_ingestion(
         engine,

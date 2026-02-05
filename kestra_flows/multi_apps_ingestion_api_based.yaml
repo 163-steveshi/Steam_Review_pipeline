@@ -57,7 +57,7 @@ tasks:
     # allow kestra to run the docker image in side the docker compose network
     networkMode: comp4905_project_default
     env:
-      DATABASE_URL: "postgresql+psycopg://root:root@pgdatabase:5432/steam_review"
+      DATABASE_URL: "{{envs.database_url}}"
     commands:
       - "--app_id"
       - "{{ inputs.app_id }}"
