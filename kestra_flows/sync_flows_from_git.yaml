@@ -7,7 +7,7 @@ tasks:
     username:  "{{envs.github_username}}"
     password: "{{ envs.github_access_token}}"
     url: "{{ envs.github_repo_url}}"
-    branch: main
+    branch: week5  #TODO: chaneg to main later
     targetNamespace: steam_review_pipeline
     gitDirectory: kestra_flows
     dryRun: false
