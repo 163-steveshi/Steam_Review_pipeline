@@ -16,3 +16,4 @@ triggers:
   - id: every_full_hour
     type: io.kestra.plugin.core.trigger.Schedule
     cron: "* 0 * * *"
+    recoverMissedSchedules: NONE

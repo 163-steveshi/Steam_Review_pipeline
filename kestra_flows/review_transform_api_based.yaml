@@ -19,6 +19,7 @@ triggers:
     type: io.kestra.plugin.core.trigger.Schedule
     cron: "@hourly" #set up to run every 1 hour
     timezone: America/Toronto
+    recoverMissedSchedules: NONE
 
 tasks:
   - id: run_ingestion_container
