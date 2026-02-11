@@ -1,0 +1,8 @@
+*.json
+/api_based_pipeline/__pycache__
+# Docker runtime data
+pgadmin_data/
+steam_reviews_postgres_data/
+__pycache__/
+*.pyc
+*.env

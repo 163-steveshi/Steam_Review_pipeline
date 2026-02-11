@@ -1,0 +1,19 @@
+id: sync_flows_from_git
+namespace: system
+
+tasks:
+  - id: sync_flows
+    type: io.kestra.plugin.git.SyncFlows
+    username:  "{{envs.github_username}}"
+    password: "{{ envs.github_access_token}}"
+    url: "{{ envs.github_repo_url}}"
+    branch: week5  #TODO: chaneg to main later
+    targetNamespace: steam_review_pipeline
+    gitDirectory: kestra_flows
+    dryRun: false
+
+triggers:
+  - id: update_flow_every_hour
+    type: io.kestra.plugin.core.trigger.Schedule
+    cron: "@hourly"
+    recoverMissedSchedules: NONE
