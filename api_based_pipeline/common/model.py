@@ -141,11 +141,11 @@ class CleanLatestReviewPlayerInfo(Base):
     num_games_owned: Mapped[int] = mapped_column(BigInteger, nullable=False)
 
     # playtime_* fields (hours)
-    total_playtime_hr: Mapped[int] = mapped_column(
+    total_playtime_mins: Mapped[int] = mapped_column(
         Integer, nullable=False
     )  # playtime_forever
-    playtime_last_two_weeks_hr: Mapped[int] = mapped_column(Integer, nullable=False)
-    playtime_at_review_hr: Mapped[int] = mapped_column(Integer, nullable=False)
+    playtime_last_two_weeks_mins: Mapped[int] = mapped_column(Integer, nullable=False)
+    playtime_at_review_mins: Mapped[int] = mapped_column(Integer, nullable=False)
 
     last_played: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), nullable=False

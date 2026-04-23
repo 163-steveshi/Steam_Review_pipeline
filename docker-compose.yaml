@@ -1,30 +1,39 @@
 services:
   pgdatabase:
     image: postgres:14
+    networks:
+      - shared_net
     environment:
       - POSTGRES_USER=${POSTGRES_USER}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
-      - POSTGRES_DB=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
     volumes:
       - "./steam_reviews_postgres_data:/var/lib/postgresql/data"
+      # run the kestra init script
+      - "./postgres_init:/docker-entrypoint-initdb.d"
     ports:
       - "55432:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U root -d steam_review"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 5s
       timeout: 5s
       retries: 10  
   pgadmin:
     image: dpage/pgadmin4
+    networks:
+      - shared_net
     environment:
       - PGADMIN_DEFAULT_EMAIL=${PGADMIN_DEFAULT_EMAIL}
       - PGADMIN_DEFAULT_PASSWORD=${PGADMIN_DEFAULT_PASSWORD}
     volumes:
-      - "./pgadmin_data:/var/lib/pgadmin"
+      # - "./pgadmin_data:/var/lib/pgadmin"
+      - pgadmin_data:/var/lib/pgadmin 
     ports:
       - "81:80"
   kestra:
     image: kestra/kestra:latest
+    networks:
+      - shared_net
     pull_policy: always
     # Note that this setup with a root user is intended for development purpose.
     # Our base image runs without root, but the Docker Compose implementation needs root to access the Docker socket
@@ -59,9 +68,6 @@ services:
             tmpDir:
               path: /tmp/kestra-wd/tmp
           url: http://localhost:8080/
-      ENV_GITHUB_ACCESS_TOKEN: ${GITHUB_ACCESS_TOKEN}
-      ENV_GITHUB_USERNAME: ${GITHUB_USERNAME}
-      ENV_GITHUB_REPO_URL: ${GITHUB_REPO_URL}
       ENV_DATABASE_URL: ${DATABASE_URL}
     ports:
       - "8080:8080"
@@ -69,5 +75,9 @@ services:
     depends_on:
       pgdatabase:
         condition: service_healthy
+networks:
+  shared_net:
+    name: steam_etl
 volumes:
   kestra-data:
+  pgadmin_data:

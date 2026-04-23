@@ -1,0 +1,46 @@
+id: manual_app_review_ingestion
+namespace: steam_review_pipeline
+
+description: Manual Steam review ingestion flow. Fill all inputs in the Kestra UI before running.
+
+inputs:
+  - id: app_id
+    type: INT
+    required: true
+    displayName: App ID
+    description: Steam app ID, for example 570 for Dota 2, 730 for CS2
+
+  - id: max_pages
+    type: INT
+    required: true
+    displayName: Max Pages
+    description: Number of pages to fetch
+
+  - id: num_per_page
+    type: INT
+    required: true
+    displayName: Reviews Per Page
+    description: Number of reviews per page
+
+  - id: language
+    type: STRING
+    required: true
+    displayName: Reviews language type
+    description: Requst ingesting review language
+
+tasks:
+  - id: run_ingestion_container
+    type: io.kestra.plugin.docker.Run
+    containerImage: steam-review-ingestion:latest
+    networkMode: steam_etl
+    env:
+      DATABASE_URL: "{{ envs.database_url }}"
+    commands:
+      - "--app_id"
+      - "{{ inputs.app_id }}"
+      - "--num_per_page"
+      - "{{ inputs.num_per_page }}"
+      - "--max_pages"
+      - "{{ inputs.max_pages }}"
+      - "--language"
+      - "{{ inputs.language }}"

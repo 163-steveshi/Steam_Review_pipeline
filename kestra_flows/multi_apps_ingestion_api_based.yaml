@@ -58,7 +58,7 @@ tasks:
     type: io.kestra.plugin.docker.Run
     containerImage: steam-review-ingestion:latest
     # allow kestra to run the docker image in side the docker compose network
-    networkMode: comp4905_project_default
+    networkMode: steam_etl
     env:
       DATABASE_URL: "{{envs.database_url}}"
     commands:

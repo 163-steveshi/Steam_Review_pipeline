@@ -68,9 +68,9 @@ CREATE TABLE IF NOT EXISTS silver.clean_latest_review_player_info (
   review_id BIGINT NOT NULL,
   steam_user_id BIGINT NOT NULL,
   num_games_owned BIGINT NOT NULL,
-  total_playtime_hr INTEGER NOT NULL,  --playtime_forver
-  playtime_last_two_weeks_hr INTEGER NOT NULL,
-  playtime_at_review_hr INTEGER NOT NULL,
+  total_playtime_mins INTEGER NOT NULL,  --playtime_forver
+  playtime_last_two_weeks_mins INTEGER NOT NULL,
+  playtime_at_review_mins INTEGER NOT NULL,
   last_played timestamptz NOT NULL,
   PRIMARY KEY(app_id, review_id),
   CONSTRAINT fk_playerinfo_review

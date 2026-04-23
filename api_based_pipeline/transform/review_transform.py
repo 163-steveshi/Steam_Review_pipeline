@@ -14,6 +14,7 @@ from sqlalchemy.exc import SQLAlchemyError
 import logging
 import argparse
 import os
+from pydantic import ValidationError
 
 log = logging.getLogger(__name__)
 
@@ -80,7 +81,7 @@ def read_raw_reivew(
     if not raw_reviews:
         return [], start_id
 
-    # TODO: when move logic to the dbt, Alternative SQL implementation using window functions is possible for larger batches.
+    # only extract the the newest review if a review has a new version.
     latest_reviews = {}
     for r in raw_reviews:
         key = (r.app_id, r.review_id)
@@ -102,7 +103,17 @@ def parse_raw_review(raw_review: Sequence[RawReview]) -> tuple[list[dict], list[
     cleaned_player_infos: list[dict] = []
     for review in raw_review:
         # after validate review write it into a map for inserting in a list
-        cleaned_review_info = Review.model_validate(review.raw_json)
+        # should not trigger as api return value should not miss field
+        # TODO: instead of just logging, create a new table for below validation error
+        try:
+            cleaned_review_info = Review.model_validate(review.raw_json)
+        except ValidationError as e:
+            log.exception(
+                "Invalid raw review. raw_id=%s errors=%s",
+                review.raw_id,
+                e.errors(),
+            )
+            continue
         cleaned_reviews.append(
             {
                 "app_id": review.app_id,
@@ -133,9 +144,9 @@ def parse_raw_review(raw_review: Sequence[RawReview]) -> tuple[list[dict], list[
                 "review_id": cleaned_review_info.recommendationid,
                 "steam_user_id": cleaned_review_info.author.steamid,
                 "num_games_owned": cleaned_review_info.author.num_games_owned,
-                "total_playtime_hr": cleaned_review_info.author.playtime_forever,
-                "playtime_last_two_weeks_hr": cleaned_review_info.author.playtime_last_two_weeks,
-                "playtime_at_review_hr": cleaned_review_info.author.playtime_at_review,
+                "total_playtime_mins": cleaned_review_info.author.playtime_forever,
+                "playtime_last_two_weeks_mins": cleaned_review_info.author.playtime_last_two_weeks,
+                "playtime_at_review_mins": cleaned_review_info.author.playtime_at_review,
                 "last_played": datetime.fromtimestamp(
                     cleaned_review_info.author.last_played, tz=timezone.utc
                 ),
@@ -184,9 +195,9 @@ def insert_cleaned_review(
             set_={
                 "steam_user_id": stmt_player_info.excluded.steam_user_id,
                 "num_games_owned": stmt_player_info.excluded.num_games_owned,
-                "total_playtime_hr": stmt_player_info.excluded.total_playtime_hr,
-                "playtime_last_two_weeks_hr": stmt_player_info.excluded.playtime_last_two_weeks_hr,
-                "playtime_at_review_hr": stmt_player_info.excluded.playtime_at_review_hr,
+                "total_playtime_mins": stmt_player_info.excluded.total_playtime_mins,
+                "playtime_last_two_weeks_mins": stmt_player_info.excluded.playtime_last_two_weeks_mins,
+                "playtime_at_review_mins": stmt_player_info.excluded.playtime_at_review_mins,
                 "last_played": stmt_player_info.excluded.last_played,
             },
             where=or_(
@@ -196,14 +207,14 @@ def insert_cleaned_review(
                 CleanLatestReviewPlayerInfo.num_games_owned.is_distinct_from(
                     stmt_player_info.excluded.num_games_owned
                 ),
-                CleanLatestReviewPlayerInfo.total_playtime_hr.is_distinct_from(
-                    stmt_player_info.excluded.total_playtime_hr
+                CleanLatestReviewPlayerInfo.total_playtime_mins.is_distinct_from(
+                    stmt_player_info.excluded.total_playtime_mins
                 ),
-                CleanLatestReviewPlayerInfo.playtime_last_two_weeks_hr.is_distinct_from(
-                    stmt_player_info.excluded.playtime_last_two_weeks_hr
+                CleanLatestReviewPlayerInfo.playtime_last_two_weeks_mins.is_distinct_from(
+                    stmt_player_info.excluded.playtime_last_two_weeks_mins
                 ),
-                CleanLatestReviewPlayerInfo.playtime_at_review_hr.is_distinct_from(
-                    stmt_player_info.excluded.playtime_at_review_hr
+                CleanLatestReviewPlayerInfo.playtime_at_review_mins.is_distinct_from(
+                    stmt_player_info.excluded.playtime_at_review_mins
                 ),
                 CleanLatestReviewPlayerInfo.last_played.is_distinct_from(
                     stmt_player_info.excluded.last_played
