@@ -1,0 +1,30 @@
+docker build -f api_based_pipeline/docker/ingestion/Dockerfile -t steam-review-ingestion .
+
+docker run --rm steam-review-ingestion \
+  --app_id 570 \
+  --filter recent \
+  --language all \
+  --review_type all \
+  --purchase_type all \
+  --num_per_page 100 \
+  --max_pages 50
+
+#for remove the image
+docker rmi steam-review-ingestion
+
+#testing the docker image
+docker network ls #(find the network info) 884c1efe7472
+docker run --rm --network yourfolder_default \
+  -e DATABASE_URL="postgresql+psycopg://root:root@pgdatabase:5432/steam_review" \
+  steam-review-ingestion --app_id 730
+
+
+# rebuild a image
+docker build -t steam-review-ingestion:latest -f api_based_pipeline/docker/ingestion/Dockerfile .
+
+
+docker build -f api_based_pipeline/docker/transform/Dockerfile -t steam-review-transform .
+
+docker run --rm --network comp4905_project_default \
+  -e DATABASE_URL="postgresql+psycopg://root:root@pgdatabase:5432/steam_review" \
+  steam-review-transform

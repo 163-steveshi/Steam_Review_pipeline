@@ -1,0 +1,22 @@
+FROM python:3.10-slim
+
+ENV PYTHONUNBUFFERED=1
+WORKDIR /app
+ENV PYTHONPATH=/app
+
+# (Optional but common) needed for some wheels / postgres builds
+RUN apt-get update && apt-get install -y \
+    gcc \
+    libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install deps first (better layer caching)
+COPY api_based_pipeline/docker/ingestion/requirements.txt /app/requirements.txt
+RUN pip install --no-cache-dir -r /app/requirements.txt
+
+# Copy ONLY the extract code (keeps image smaller)
+COPY api_based_pipeline/ingestion /app/ingestion
+COPY api_based_pipeline/common/model.py /app/api_based_pipeline/common/model.py
+
+# Run extract logic
+ENTRYPOINT ["python", "-m", "ingestion.api_extract"]
