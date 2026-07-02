@@ -6,3 +6,10 @@ steam_reviews_postgres_data/
 __pycache__/
 *.pyc
 *.env
+logs/
+airflow.cfg
+airflow.db
+webserver_config.py
+config/secrets/
+*.log
+config/
