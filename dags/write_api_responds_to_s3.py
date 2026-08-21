@@ -1,4 +1,5 @@
 import json
+import logging
 
 
 from csv import Error
@@ -11,7 +12,7 @@ from airflow.models.param import Param
 from airflow.decorators import dag, task
 from airflow.exceptions import AirflowException
 from datetime import datetime, timedelta, timezone
-
+from snowflake.connector.errors import ProgrammingError, DatabaseError, OperationalError
 
 from api_based_pipeline.common.model import SteamReviewAPIResponse
 from api_based_pipeline.ingestion.api_extract import request_reviews_with_fallback
@@ -26,7 +27,7 @@ default_args = {
     "email": ["your-team@example.com"],
     "email_on_failure": True,
 }
-
+logger = logging.getLogger(__name__)
 S3_CONN_ID = "aws_s3_conn"
 SNOWFLAKE_CONN_ID = "snowflake_steam_review_pipeline"
 S3_BUCKET_NAME = "steam-review-api-responses"
@@ -59,7 +60,14 @@ def steam_review_ingestion():
     def get_app_id(**context) -> int:
         # TODO: wrap into try catch for catch the exception
         # returns actual resolved Python list, not a template string
-        return context["params"]["app_id"]
+
+        app_id = context["params"]["app_id"]
+        if not app_id:
+            raise ValueError(
+                "Missing required DAG param 'app_id'. "
+                'Trigger the DAG with a config like: {"app_id": "730"}'
+            )
+        return app_id
 
     @task
     def get_cursor(app_id: int) -> str:
@@ -68,13 +76,16 @@ def steam_review_ingestion():
         # 2. Get the pre-configured SQLAlchemy engine natively
         # Option B: get a pandas DataFrame
         sql = f"SELECT * FROM steam_review.PIPELINE_META.CURSOR_STATE_DAILY_INGESTION WHERE app_id = {app_id}"
-        df = db_hook.get_pandas_df(sql)
-        if df.empty:
-            cursor = "*"
-        else:
-            # columnm name is strictly case sensitive
-            cursor = df.iloc[0]["LAST_CURSOR"]
-        return cursor
+        try:
+            df = db_hook.get_pandas_df(sql)
+            if df.empty:
+                cursor = "*"
+            else:
+                # columnm name is strictly case sensitive
+                cursor = df.iloc[0]["LAST_CURSOR"]
+            return cursor
+        except (ProgrammingError, DatabaseError, OperationalError) as e:
+            raise e
 
     @task
     def request_review(app_id: int, cursor: str, **context) -> SteamReviewAPIResponse:
@@ -140,16 +151,18 @@ def steam_review_ingestion():
             WHEN NOT MATCHED THEN INSERT (app_id, last_cursor, last_run_at, last_run_status)
                 VALUES (%(app_id)s, %(new_cursor)s, %(last_run_at)s, %(last_run_status)s)
         """
-
-        db_hook.run(
-            merge_sql,
-            parameters={
-                "app_id": app_id,
-                "new_cursor": api_response["cursor"],
-                "last_run_at": datetime.now(timezone.utc),
-                "last_run_status": "SUCCESS",
-            },
-        )
+        try:
+            db_hook.run(
+                merge_sql,
+                parameters={
+                    "app_id": app_id,
+                    "new_cursor": api_response["cursor"],
+                    "last_run_at": datetime.now(timezone.utc),
+                    "last_run_status": "SUCCESS",
+                },
+            )
+        except (ProgrammingError, DatabaseError, OperationalError) as e:
+            raise e
 
     @task
     def record_ingestion_run_result(
@@ -158,33 +171,87 @@ def steam_review_ingestion():
         successed: bool,
         start_cursor: str,
         api_response: SteamReviewAPIResponse,
+        **context,
     ):
         db_hook = SnowflakeHook(snowflake_conn_id=SNOWFLAKE_CONN_ID)
         if successed:
             insert_query = """
-                INSERT INTO steam_review.PIPELINE_META.API_INGESTION_RUN (app_id, started_at, ended_at, start_cursor, end_cursor, rows_loaded, status)
-                VALUES (%(app_id)s, %(started_at)s, %(ended_at)s, %(start_cursor)s, %(end_cursor)s, %(rows_loaded)s, %(status)s)
+                INSERT INTO steam_review.PIPELINE_META.API_INGESTION_RUN (run_id, app_id, started_at, ended_at, start_cursor, end_cursor, rows_loaded, status)
+                VALUES (%(run_id)s,%(app_id)s, %(started_at)s, %(ended_at)s, %(start_cursor)s, %(end_cursor)s, %(rows_loaded)s, %(status)s)
             """
+            try:
+                db_hook.run(
+                    insert_query,
+                    parameters={
+                        "run_id": context["run_id"],
+                        "app_id": app_id,
+                        "started_at": started_at,
+                        "ended_at": datetime.now(timezone.utc),
+                        "start_cursor": start_cursor,
+                        "end_cursor": api_response["cursor"],
+                        "rows_loaded": api_response["query_summary"]["num_reviews"],
+                        "status": "SUCCESS",
+                    },
+                )
+            except (ProgrammingError, DatabaseError, OperationalError) as e:
+                raise e
+
+    # TODO: write the fasle ingetsion run record
+    def _log_pipeline_error(
+        app_id: int,
+        start_cursor: str | None,
+        error_message: str,
+        started_at: datetime,
+        api_response: dict | None,
+        **context,
+    ):
+        """Best-effort error logging — don't let a logging failure mask the real error."""
+        db_hook = SnowflakeHook(snowflake_conn_id=SNOWFLAKE_CONN_ID)
+        insert_error_sql = """
+            INSERT INTO steam_review.PIPELINE_META.API_INGESTION_RUN (run_id, app_id, started_at, ended_at, start_cursor, end_cursor, rows_loaded, status, failure_reason)
+                VALUES (%(run_id)s,%(app_id)s, %(started_at)s, %(ended_at)s, %(start_cursor)s, %(end_cursor)s, %(rows_loaded)s, %(status)s, %(failure_reason)s)
+        """
+        try:
             db_hook.run(
-                insert_query,
+                insert_error_sql,
                 parameters={
+                    "run_id": context["run_id"],
                     "app_id": app_id,
-                    "started_at": started_at,  # Replace with your actual start variable
+                    "started_at": started_at,
                     "ended_at": datetime.now(timezone.utc),
-                    "start_cursor": start_cursor,  # Replace with your actual start cursor variable
-                    "end_cursor": api_response[
-                        "cursor"
-                    ],  # Replace with your actual end cursor variable
-                    "rows_loaded": api_response["query_summary"][
-                        "num_reviews"
-                    ],  # Replace with your actual rows loaded variable
-                    "status": "SUCCESS",
+                    "start_cursor": start_cursor,
+                    "end_cursor": api_response.get("cursor") if api_response else None,
+                    "rows_loaded": (
+                        api_response.get("query_summary", {}).get("num_reviews")
+                        if api_response
+                        else None or None
+                    ),
+                    "status": "FAILED",
+                    "failure_reason": error_message,
                 },
             )
-        # TODO: write the fasle ingetsion run record
+            logger.error(
+                "Logged pipeline error to PIPELINE_ERROR_LOG: app_id=%s run_id=%s error_message=%s",
+                app_id,
+                context["run_id"],
+                error_message,
+            )
+        except Exception as log_err:
+            # if even logging fails, don't crash the task on top of the original error —
+            # log at ERROR level so it's visible and searchable in Airflow's task logs
+            logger.error(
+                "Failed to log pipeline error to PIPELINE_ERROR_LOG: %s (original error_message=%s, app_id=%s)",
+                log_err,
+                error_message,
+                app_id,
+            )
 
+    start_time = datetime.now(timezone.utc)
+    app_id = -1
+    cursor = None
+    respond = None
     try:
-        start_time = datetime.now(timezone.utc)
+
         app_id = get_app_id()
         cursor = get_cursor(app_id)
         respond = request_review(app_id, cursor)
@@ -199,12 +266,33 @@ def steam_review_ingestion():
                 api_response=respond,
             )
 
-        # now save the cursor and save the ingestion run status
-    except AirflowException as e:
-        print()
-    except Error as e:
-        # save the false ingestion run staatus
-        print()
+    except ValueError as e:
+        logger.error(e)
+    except AirflowException or RuntimeError as e:
+        _log_pipeline_error(
+            app_id=app_id,
+            start_cursor=cursor,
+            error_message=str(e),
+            started_at=start_time,
+            api_response=None,
+        )
+
+    except (ProgrammingError, DatabaseError, OperationalError) as e:
+        _log_pipeline_error(
+            app_id=app_id,
+            start_cursor=cursor,
+            error_message=str(e),
+            started_at=start_time,
+            api_response=respond,
+        )
+    except Exception as e:
+        _log_pipeline_error(
+            app_id=app_id,
+            start_cursor=cursor,
+            error_message="unknown gerneal error" + str(e),
+            started_at=start_time,
+            api_response=respond,
+        )
 
 
 steam_review_ingestion()
