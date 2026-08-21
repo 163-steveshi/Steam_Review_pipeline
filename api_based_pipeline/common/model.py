@@ -196,6 +196,7 @@ class Review(BaseModel):
     received_for_free: bool
     written_during_early_access: bool
     primarily_steam_deck: bool
+    reactions: list
 
 
 class QuerySummary(BaseModel):

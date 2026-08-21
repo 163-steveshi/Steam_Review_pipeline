@@ -50,13 +50,17 @@ CREATE TABLE PIPELINE_META.INGESTION_RUN (
     rows_loaded     NUMBER,
     status          STRING        -- 'SUCCESS' | 'FAILED' | 'IN_PROGRESS'
 );
-
-TWO DAGS:
+STEP1: load the api respond to s3 bucket
+DAGS:
 DAG 1: steam_reviews_extract — API → S3 only.
 get_cursor_task → fetch_pages_task[] → write_s3_task[] → update_cursor_task
-DAG 2: steam_reviews_load — S3 → Iceberg only.
+need to define s3 bukcet directory format
+configure the snowflake role that only for airflow, and set up snowflake connection via airflow ui
+also assign the new role to the login snowflake account 
+
+STEP2:
+Utilize snowpipe + external stage: steam_reviews_load — S3 → Iceberg only.
 detect_new_files_task(integereded with snowpipe) → load_bronze_task → log_run_task
 do not use snowpipe stream: it is for low latencey micro batch streaming, costly
 
-need to define s3 bukcet directory format
-configure the snowflake role that only for airflow, and set up snowflake connection via airflow ui
+S3 → S3 event notification → Snowpipe → Snowflake stage → target table

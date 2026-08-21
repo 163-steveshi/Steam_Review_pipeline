@@ -2,13 +2,9 @@ CREATE OR REPLACE SCHEMA steam_review.PIPELINE_META;
 select catalog STEAM_REVIEW;
 CREATE OR REPLACE TABLE steam_review.PIPELINE_META.CURSOR_STATE_DAILY_INGESTION (
    app_id              BIGINT PRIMARY KEY,
-    last_seen_review_id BIGINT,           -- newest review_id ingested so far
-    last_seen_timestamp TIMESTAMPTZ,      -- review's created/updated timestamp, for sanity checks
     last_cursor         TEXT,             -- optional: last cursor used, mostly for debugging
     last_run_at         TIMESTAMPTZ,
-    last_run_status     TEXT,             -- 'success' | 'failed' | 'running'
-    consecutive_failures INT DEFAULT 0,
-    updated_at          TIMESTAMPTZ DEFAULT  CURRENT_TIMESTAMP()
+    last_run_status     TEXT           -- 'success' | 'failed' | 'running'
 );
 
 CREATE OR REPLACE TABLE steam_review.PIPELINE_META.cursor_state_backfill (
@@ -21,6 +17,21 @@ CREATE OR REPLACE TABLE steam_review.PIPELINE_META.cursor_state_backfill (
     consecutive_failures INT DEFAULT 0,
     updated_at           TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP()
 );
+
+
+CREATE OR REPLACE TABLE steam_review.PIPELINE_META.API_INGESTION_RUN (
+    run_id          STRING DEFAULT UUID_STRING(),   -- Snowflake can auto-generate a UUID
+    app_id           STRING NOT NULL,
+    started_at      TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP(),
+    ended_at        TIMESTAMP_NTZ,
+    start_cursor    STRING,
+    end_cursor      STRING,
+    rows_loaded     NUMBER DEFAULT 0,
+    status          STRING,       -- 'RUNNING' | 'SUCCESS' | 'FAILED'
+    failure_reason  STRING,
+    CONSTRAINT pk_run_id PRIMARY KEY (run_id)
+);
+
 
 GRANT USAGE ON DATABASE steam_review TO ROLE AIRFLOW_ROLE;
 GRANT USAGE ON SCHEMA steam_review.PIPELINE_META TO ROLE AIRFLOW_ROLE;
