@@ -64,3 +64,37 @@ detect_new_files_task(integereded with snowpipe) → load_bronze_task → log_ru
 do not use snowpipe stream: it is for low latencey micro batch streaming, costly
 
 S3 → S3 event notification → Snowpipe → Snowflake stage → target table
+
+1. set up i am role in aws for access a specific s3 bucket (not a i am user)
+2. create the external volume in Snowflake, referencing that role's ARN.
+Snowflake generates its own AWS IAM user + external ID for  Snowflake account (get this by running     
+describe external volume  iceberg_external_volume;)
+3. go back to aws and set up the connection:
+Update the IAM role's trust policy — run DESC EXTERNAL VOLUME iceberg_external_volume to get Snowflake's generated STORAGE_AWS_IAM_USER_ARN and STORAGE_AWS_EXTERNAL_ID, then plug those into your IAM role's trust relationship in AWS.
+
+{
+	"Version": "2012-10-17",
+	"Statement": [
+		{
+			"Effect": "Allow",
+			"Principal": {
+				"AWS": "arn:aws:iam::<SNOWFLAKE_ACCOUNT_ID>:user/<SNOWFLAKE_IAM_USER>"
+			},
+			"Action": "sts:AssumeRole",
+			"Condition": {
+				"StringEquals": {
+					"sts:ExternalId": "<STORAGE_AWS_EXTERNAL_ID>"
+				}
+			}
+		}
+	]
+}
+4. create the iceberg table
+5. create the file format definition for snow pipe
+6. creaet the exrnal stage: point to the s3 bucket:
+need to create a storage intergation with explictly aws role and location
+use describe to describe the new stogra intergation and add the snowflake  iam_arn and external_id into the iam trust policy area
+7. create the snowpipe:
+#TODO:
+8. turn on s3 lambda notification sending
+get tye notification channel + configure s3 event notification
