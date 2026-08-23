@@ -89,12 +89,31 @@ Update the IAM role's trust policy — run DESC EXTERNAL VOLUME iceberg_external
 		}
 	]
 }
-4. create the iceberg table
+4. create the iceberg table + landing table:
+landing table for data get into snowflake
+
 5. create the file format definition for snow pipe
 6. creaet the exrnal stage: point to the s3 bucket:
 need to create a storage intergation with explictly aws role and location
 use describe to describe the new stogra intergation and add the snowflake  iam_arn and external_id into the iam trust policy area
 7. create the snowpipe:
-#TODO:
+
 8. turn on s3 lambda notification sending
 get tye notification channel + configure s3 event notification
+DESCRIBE PIPE steam_review.BRONZE.steam_pipe;
+find notification_channel amd search for arn:aws:sqs:ca-central-1:123456789012:sf-snowpipe-...
+
+
+AWS Console → S3 → your bucket → Properties → Event notifications → Create event notification
+
+under Event types, select: Object creation
+
+For destination:
+
+SQS Queue
+
+and select the Snowflake SQS queue ARN obtained from SHOW PIPES.
+
+9. use a task that flattyen + insert into the bronze table
+
+the bronze table should be dynamic ice berg table: : Store the final or intermediate results of a declarative SELECT query (including complex joins and aggregations) and update themselves on a schedule + plus external location
