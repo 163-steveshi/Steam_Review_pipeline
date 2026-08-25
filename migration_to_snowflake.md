@@ -114,6 +114,13 @@ SQS Queue
 
 and select the Snowflake SQS queue ARN obtained from SHOW PIPES.
 
-9. use a task that flattyen + insert into the bronze table
+9. use a task that flatten + insert into the bronze table
 
 the bronze table should be dynamic ice berg table: : Store the final or intermediate results of a declarative SELECT query (including complex joins and aggregations) and update themselves on a schedule + plus external location
+
+10. implement the silver flag table
+11. splite the silver review and silver player info
+12. add silver player clean, dlq +  silver review clean, dlq 
+13. add scd1 and scd2 over the clean data
+14. migrate to dbt for using dbt data quality test
+15. find a way to host over github actions
