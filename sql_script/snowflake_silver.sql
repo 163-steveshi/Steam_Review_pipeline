@@ -201,7 +201,7 @@ CREATE STREAM IF NOT EXISTS STEAM_REVIEW.SILVER.steam_reviews_flagged_stream
 
 CREATE TASK IF NOT EXISTS STEAM_REVIEW.SILVER.task_merge_dim_reviews_scd1
   WAREHOUSE = COMPUTE_WH
-  SCHEDULE = '10 mins'
+  SCHEDULE = '10 minutes'
   WHEN SYSTEM$STREAM_HAS_DATA('STEAM_REVIEW.SILVER.steam_reviews_flagged_stream')
 AS
 MERGE INTO STEAM_REVIEW.SILVER.dim_reviews_scd1 AS tgt
@@ -276,7 +276,7 @@ CREATE STREAM IF NOT EXISTS STEAM_REVIEW.SILVER.steam_reviews_flagged_stream_pla
   APPEND_ONLY = FALSE;
 CREATE TASK IF NOT EXISTS STEAM_REVIEW.SILVER.task_merge_dim_player_info_scd1
   WAREHOUSE = COMPUTE_WH
-  SCHEDULE = '10 mins'
+  SCHEDULE = '10 minutes'
   WHEN SYSTEM$STREAM_HAS_DATA('STEAM_REVIEW.SILVER.steam_reviews_flagged_stream_player')
 AS
 MERGE INTO  STEAM_REVIEW.SILVER.dim_player_info_scd1 AS tgt
