@@ -1,5 +1,5 @@
 CREATE OR REPLACE DYNAMIC TABLE STEAM_REVIEW.silver.steam_reviews_flagged
-  TARGET_LAG = '1 hour'
+  TARGET_LAG = '5 mins'
   WAREHOUSE = COMPUTE_WH
   COMMENT = 'Intermediate table: casts + flags validity, nothing is dropped here'
 AS
@@ -171,3 +171,165 @@ SELECT
     ) AS review_player_failure_reasons
 
 FROM STEAM_REVIEW.BRONZE.RAW_REVIEW;
+
+CREATE TABLE IF NOT EXISTS STEAM_REVIEW.SILVER.dim_reviews_scd1 (
+    review_id                         STRING PRIMARY KEY,
+    app_id                            STRING,
+    language                          STRING,
+    review                            STRING,
+    timestamp_created                 TIMESTAMP_NTZ,
+    timestamp_updated                 TIMESTAMP_NTZ,
+    voted_positive                    BOOLEAN,
+    votes_helpful                     BIGINT,
+    votes_funny                       BIGINT,
+    weighted_vote_score                FLOAT,
+    comment_count                     BIGINT,
+    is_steam_purchase                 BOOLEAN,
+    is_received_for_free              BOOLEAN,
+    is_written_during_early_access    BOOLEAN,
+    developer_response                VARCHAR,
+    timestamp_dev_responded           TIMESTAMP_NTZ,
+    is_primarily_steam_deck_player    BOOLEAN,
+    reactions                         VARIANT,
+    ingested_at                       TIMESTAMP_NTZ,
+    _dlt_updated_at                   TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP() -- when the merge statement write the data
+);
+
+CREATE STREAM IF NOT EXISTS STEAM_REVIEW.SILVER.steam_reviews_flagged_stream
+  ON DYNAMIC TABLE STEAM_REVIEW.SILVER.steam_reviews_flagged
+  APPEND_ONLY = FALSE; -- need operation like update
+
+CREATE TASK IF NOT EXISTS STEAM_REVIEW.SILVER.task_merge_dim_reviews_scd1
+  WAREHOUSE = COMPUTE_WH
+  SCHEDULE = '10 mins'
+  WHEN SYSTEM$STREAM_HAS_DATA('STEAM_REVIEW.SILVER.steam_reviews_flagged_stream')
+AS
+MERGE INTO STEAM_REVIEW.SILVER.dim_reviews_scd1 AS tgt
+USING (
+    SELECT *
+    FROM STEAM_REVIEW.SILVER.steam_reviews_flagged_stream
+    WHERE METADATA$ACTION = 'INSERT'
+      AND ARRAY_SIZE(review_failure_reasons) = 0   -- only clean rows flow to gold
+) AS src
+ON tgt.review_id = src.review_id
+
+WHEN MATCHED AND src.METADATA$ISUPDATE = TRUE THEN
+    UPDATE SET
+        app_id                          = src.app_id,
+        language                        = src.language,
+        review                          = src.review,
+        timestamp_created               = src.timestamp_created,
+        timestamp_updated               = src.timestamp_updated,
+        voted_positive                  = src.voted_positive,
+        votes_helpful                   = src.votes_helpful,
+        votes_funny                     = src.votes_funny,
+        weighted_vote_score             = src.weighted_vote_score,
+        comment_count                   = src.comment_count,
+        is_steam_purchase               = src.is_steam_purchase,
+        is_received_for_free            = src.is_received_for_free,
+        is_written_during_early_access  = src.is_written_during_early_access,
+        developer_response              = src.developer_response,
+        timestamp_dev_responded         = src.timestamp_dev_responded,
+        is_primarily_steam_deck_player  = src.is_primarily_steam_deck_player,
+        reactions                       = src.reactions,
+        ingested_at                     = src.ingested_at,
+        _dlt_updated_at                 = CURRENT_TIMESTAMP()
+
+WHEN NOT MATCHED THEN
+    INSERT (
+        review_id, app_id, language, review,
+        timestamp_created, timestamp_updated,
+        voted_positive, votes_helpful, votes_funny, weighted_vote_score,
+        comment_count, is_steam_purchase, is_received_for_free,
+        is_written_during_early_access, developer_response,
+        timestamp_dev_responded, is_primarily_steam_deck_player,
+        reactions, ingested_at, _dlt_updated_at
+    )
+    VALUES (
+        src.review_id, src.app_id, src.language, src.review,
+        src.timestamp_created, src.timestamp_updated,
+        src.voted_positive, src.votes_helpful, src.votes_funny, src.weighted_vote_score,
+        src.comment_count, src.is_steam_purchase, src.is_received_for_free,
+        src.is_written_during_early_access, src.developer_response,
+        src.timestamp_dev_responded, src.is_primarily_steam_deck_player,
+        src.reactions, src.ingested_at, CURRENT_TIMESTAMP()
+    );
+
+ALTER TASK STEAM_REVIEW.SILVER.task_merge_dim_review_scd1 RESUME;
+
+
+CREATE TABLE IF NOT EXISTS STEAM_REVIEW.SILVER.dim_player_info_scd1 (
+    author_steam_id                        STRING PRIMARY KEY,
+    author_num_games_owned                 BIGINT,
+    author_num_reviews                     BIGINT,
+    author_playtime_forever_mins           BIGINT,
+    author_playtime_last_two_weeks_mins    BIGINT,
+    author_playtime_at_review_mins         BIGINT,
+    author_deck_playtime_at_review_mins    BIGINT,
+    author_last_played_timestamp           TIMESTAMP_NTZ,
+    ingested_at                            TIMESTAMP_NTZ,
+    _dlt_updated_at                        TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP()
+);
+
+CREATE STREAM IF NOT EXISTS STEAM_REVIEW.SILVER.steam_reviews_flagged_stream_player
+  ON DYNAMIC TABLE STEAM_REVIEW.SILVER.steam_reviews_flagged
+  APPEND_ONLY = FALSE;
+CREATE TASK IF NOT EXISTS STEAM_REVIEW.SILVER.task_merge_dim_player_info_scd1
+  WAREHOUSE = COMPUTE_WH
+  SCHEDULE = '10 mins'
+  WHEN SYSTEM$STREAM_HAS_DATA('STEAM_REVIEW.SILVER.steam_reviews_flagged_stream_player')
+AS
+MERGE INTO  STEAM_REVIEW.SILVER.dim_player_info_scd1 AS tgt
+USING (
+    SELECT
+        author_steam_id,
+        author_num_games_owned,
+        author_num_reviews,
+        author_playtime_forever_mins,
+        author_playtime_last_two_weeks_mins,
+        author_playtime_at_review_mins,
+        author_deck_playtime_at_review_mins,
+        author_last_played_timestamp,
+        ingested_at
+    FROM (
+        SELECT
+            *,
+            ROW_NUMBER() OVER (
+                PARTITION BY author_steam_id
+                ORDER BY ingested_at DESC, timestamp_updated DESC NULLS LAST
+            ) AS rn
+        FROM STEAM_REVIEW.SILVER.steam_reviews_flagged_stream_player
+        WHERE METADATA$ACTION = 'INSERT'
+          AND ARRAY_SIZE(review_player_failure_reasons) = 0   -- only clean author rows flow to gold
+    )
+    WHERE rn = 1   -- one row per author per batch, most recent wins
+) AS src
+ON tgt.author_steam_id = src.author_steam_id
+
+WHEN MATCHED THEN
+    UPDATE SET
+        author_num_games_owned                 = src.author_num_games_owned,
+        author_num_reviews                     = src.author_num_reviews,
+        author_playtime_forever_mins           = src.author_playtime_forever_mins,
+        author_playtime_last_two_weeks_mins    = src.author_playtime_last_two_weeks_mins,
+        author_playtime_at_review_mins         = src.author_playtime_at_review_mins,
+        author_deck_playtime_at_review_mins    = src.author_deck_playtime_at_review_mins,
+        author_last_played_timestamp           = src.author_last_played_timestamp,
+        ingested_at                             = src.ingested_at,
+        _dlt_updated_at                         = CURRENT_TIMESTAMP()
+
+WHEN NOT MATCHED THEN
+    INSERT (
+        author_steam_id, author_num_games_owned, author_num_reviews,
+        author_playtime_forever_mins, author_playtime_last_two_weeks_mins,
+        author_playtime_at_review_mins, author_deck_playtime_at_review_mins,
+        author_last_played_timestamp, ingested_at, _dlt_updated_at
+    )
+    VALUES (
+        src.author_steam_id, src.author_num_games_owned, src.author_num_reviews,
+        src.author_playtime_forever_mins, src.author_playtime_last_two_weeks_mins,
+        src.author_playtime_at_review_mins, src.author_deck_playtime_at_review_mins,
+        src.author_last_played_timestamp, src.ingested_at, CURRENT_TIMESTAMP()
+    );
+
+ALTER TASK STEAM_REVIEW.SILVER.task_merge_dim_player_info_scd1 RESUME;

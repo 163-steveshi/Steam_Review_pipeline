@@ -122,5 +122,8 @@ the bronze table should be dynamic ice berg table: : Store the final or intermed
 11. splite the silver review and silver player info
 12. add silver player clean, dlq +  silver review clean, dlq 
 13. add scd1 and scd2 over the clean data
+define stream to track cdc of flag table
+create task for merge into the sc1 table
+
 14. migrate to dbt for using dbt data quality test
 15. find a way to host over github actions
