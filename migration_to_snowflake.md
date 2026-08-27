@@ -122,7 +122,9 @@ the bronze table should be dynamic ice berg table: : Store the final or intermed
 11. splite the silver review and silver player info
 12. add silver player clean, dlq +  silver review clean, dlq 
 13. add scd1 and scd2 over the clean data
-define stream to track cdc of flag table
+define stream to track cdc of flag table: each scd task has its own stream:
+A stream has one offset. Once Task A consumes the stream, the stream's offset advances. Task B may then see no rows (depending on timing and transaction behavior).
+
 create task for merge into the sc1 table
 
 14. migrate to dbt for using dbt data quality test

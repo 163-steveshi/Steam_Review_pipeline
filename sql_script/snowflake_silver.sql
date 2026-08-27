@@ -207,14 +207,42 @@ AS
 MERGE INTO STEAM_REVIEW.SILVER.dim_reviews_scd1 AS tgt
 USING (
     SELECT *
-    FROM STEAM_REVIEW.SILVER.steam_reviews_flagged_stream
-    WHERE METADATA$ACTION = 'INSERT'
-      AND ARRAY_SIZE(review_failure_reasons) = 0   -- only clean rows flow to gold
+        FROM (
+        SELECT
+            *,
+            ROW_NUMBER() OVER (
+                PARTITION BY review_id            
+                ORDER BY ingested_at DESC, timestamp_updated DESC NULLS LAST
+            ) AS rn
+        FROM STEAM_REVIEW.SILVER.steam_reviews_flagged_stream
+        WHERE METADATA$ACTION = 'INSERT'
+          AND ARRAY_SIZE(review_failure_reasons) = 0   -- onl
+    )
+    WHERE rn = 1   -- one row per author per batch, most recent wins
 ) AS src
 ON tgt.review_id = src.review_id
 
-WHEN MATCHED AND src.METADATA$ISUPDATE = TRUE THEN
-    UPDATE SET
+WHEN MATCHED AND (
+       tgt.app_id                          IS DISTINCT FROM src.app_id
+    OR tgt.language                        IS DISTINCT FROM src.language
+    OR tgt.review                          IS DISTINCT FROM src.review
+    OR tgt.timestamp_created               IS DISTINCT FROM src.timestamp_created
+    OR tgt.timestamp_updated               IS DISTINCT FROM src.timestamp_updated
+    OR tgt.voted_positive                  IS DISTINCT FROM src.voted_positive
+    OR tgt.votes_helpful                   IS DISTINCT FROM src.votes_helpful
+    OR tgt.votes_funny                     IS DISTINCT FROM src.votes_funny
+    OR tgt.weighted_vote_score             IS DISTINCT FROM src.weighted_vote_score
+    OR tgt.comment_count                   IS DISTINCT FROM src.comment_count
+    OR tgt.is_steam_purchase               IS DISTINCT FROM src.is_steam_purchase
+    OR tgt.is_received_for_free            IS DISTINCT FROM src.is_received_for_free
+    OR tgt.is_written_during_early_access  IS DISTINCT FROM src.is_written_during_early_access
+    OR tgt.developer_response              IS DISTINCT FROM src.developer_response
+    OR tgt.timestamp_dev_responded         IS DISTINCT FROM src.timestamp_dev_responded
+    OR tgt.is_primarily_steam_deck_player  IS DISTINCT FROM src.is_primarily_steam_deck_player
+    OR tgt.reactions                       IS DISTINCT FROM src.reactions
+    OR tgt.ingested_at                     IS DISTINCT FROM src.ingested_at
+)
+    THEN UPDATE SET
         app_id                          = src.app_id,
         language                        = src.language,
         review                          = src.review,
@@ -306,8 +334,16 @@ USING (
 ) AS src
 ON tgt.author_steam_id = src.author_steam_id
 
-WHEN MATCHED THEN
-    UPDATE SET
+WHEN MATCHED AND (
+       tgt.author_num_games_owned              IS DISTINCT FROM src.author_num_games_owned
+    OR tgt.author_num_reviews                  IS DISTINCT FROM src.author_num_reviews
+    OR tgt.author_playtime_forever_mins        IS DISTINCT FROM src.author_playtime_forever_mins
+    OR tgt.author_playtime_last_two_weeks_mins IS DISTINCT FROM src.author_playtime_last_two_weeks_mins
+    OR tgt.author_playtime_at_review_mins      IS DISTINCT FROM src.author_playtime_at_review_mins
+    OR tgt.author_deck_playtime_at_review_mins IS DISTINCT FROM src.author_deck_playtime_at_review_mins
+    OR tgt.author_last_played_timestamp        IS DISTINCT FROM src.author_last_played_timestamp
+)
+    THEN UPDATE SET
         author_num_games_owned                 = src.author_num_games_owned,
         author_num_reviews                     = src.author_num_reviews,
         author_playtime_forever_mins           = src.author_playtime_forever_mins,
