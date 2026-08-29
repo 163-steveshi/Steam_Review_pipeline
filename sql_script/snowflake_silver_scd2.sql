@@ -169,3 +169,161 @@ WHEN NOT MATCHED THEN
         Source.reactions, Source.ingested_at, Source.start_timestamp, Source.end_timestamp, Source.is_current
     );
 ALTER TASK STEAM_REVIEW.SILVER.task_merge_dim_reviews_scd2 RESUME;
+
+
+
+CREATE OR REPLACE TABLE STEAM_REVIEW.SILVER.dim_player_infos_scd2 (
+    author_steam_id                        STRING PRIMARY KEY,
+    author_num_games_owned                 BIGINT,
+    author_num_reviews                     BIGINT,
+    author_playtime_forever_mins           BIGINT,
+    author_playtime_last_two_weeks_mins    BIGINT,
+    author_playtime_at_review_mins         BIGINT,
+    author_deck_playtime_at_review_mins    BIGINT,
+    author_last_played_timestamp           TIMESTAMP_NTZ,
+    ingested_at                            TIMESTAMP_NTZ,
+    start_timestamp                   TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP(),
+    end_timestamp                     TIMESTAMP_NTZ,
+    is_current                        BOOLEAN
+);
+
+CREATE OR REPLACE STREAM  STEAM_REVIEW.SILVER.steam_reviews_flagged_stream_player_info_scd2
+  ON DYNAMIC TABLE STEAM_REVIEW.SILVER.steam_reviews_flagged
+  APPEND_ONLY = FALSE;
+  
+CREATE OR REPLACE TASK STEAM_REVIEW.SILVER.task_merge_dim_player_info_scd2
+  WAREHOUSE = COMPUTE_WH
+  SCHEDULE = '10 minutes'
+  WHEN SYSTEM$STREAM_HAS_DATA('STEAM_REVIEW.SILVER.steam_reviews_flagged_stream_player_info_scd2')
+AS
+MERGE INTO STEAM_REVIEW.SILVER.dim_player_infos_scd2 AS Target
+USING (
+    WITH Clean_Staging AS (
+        SELECT * FROM (
+            SELECT
+                *,
+                ROW_NUMBER() OVER (
+                    PARTITION BY  author_steam_id
+                    ORDER BY ingested_at DESC, timestamp_updated DESC NULLS LAST
+                ) AS rn
+            FROM STEAM_REVIEW.SILVER.steam_reviews_flagged_stream_player_info_scd2
+            WHERE METADATA$ACTION = 'INSERT'
+              AND ARRAY_SIZE(review_failure_reasons) = 0
+        )
+        WHERE rn = 1
+    )
+    -- 1. Brand new record
+    SELECT
+        S.author_steam_id,
+        S.author_num_games_owned,
+        S.author_num_reviews,
+        S.author_playtime_forever_mins,
+        S.author_playtime_last_two_weeks_mins,
+        S.author_playtime_at_review_mins,
+        S.author_deck_playtime_at_review_mins,
+        S.author_last_played_timestamp, 
+        S.ingested_at,
+        CURRENT_TIMESTAMP() AS start_timestamp,
+        NULL::TIMESTAMP_NTZ AS end_timestamp,
+        TRUE AS is_current,
+        'INSERT' AS Action_Type
+    FROM Clean_Staging S
+    LEFT JOIN STEAM_REVIEW.SILVER.dim_player_infos_scd2 AS T
+        ON S.author_steam_id = T.author_steam_id AND T.is_current = TRUE
+    WHERE T.author_steam_id IS NULL
+
+    UNION ALL
+
+    -- 2. Expire existing current row that changed
+    SELECT
+        T.author_steam_id,
+        T.author_num_games_owned,
+        T.author_num_reviews,
+        T.author_playtime_forever_mins,
+        T.author_playtime_last_two_weeks_mins,
+        T.author_playtime_at_review_mins,
+        T.author_deck_playtime_at_review_mins,
+        T.author_last_played_timestamp, 
+        T.ingested_at,
+        T.start_timestamp,
+        CURRENT_TIMESTAMP() AS end_timestamp,
+        FALSE AS is_current,
+        'UPDATE_EXPIRE' AS Action_Type
+    FROM Clean_Staging S
+    INNER JOIN STEAM_REVIEW.SILVER.dim_player_infos_scd2 AS T
+        ON S.author_steam_id = T.author_steam_id AND T.is_current = TRUE
+    WHERE
+        S.author_num_games_owned IS DISTINCT FROM T.author_num_games_owned
+        OR S.author_num_reviews IS DISTINCT FROM T.author_num_reviews
+        OR S.author_playtime_forever_mins IS DISTINCT FROM T.author_playtime_forever_mins
+        OR S.author_playtime_last_two_weeks_mins IS DISTINCT FROM T.author_playtime_last_two_weeks_mins
+        OR S.author_playtime_at_review_mins IS DISTINCT FROM T.author_playtime_at_review_mins
+        OR S.author_deck_playtime_at_review_mins IS DISTINCT FROM T.author_deck_playtime_at_review_mins
+        OR S.author_last_played_timestamp IS DISTINCT FROM T.author_last_played_timestamp
+
+    UNION ALL
+
+    -- 3. New active version of a changed row
+    SELECT
+        S.author_steam_id,
+        S.author_num_games_owned,
+        S.author_num_reviews,
+        S.author_playtime_forever_mins,
+        S.author_playtime_last_two_weeks_mins,
+        S.author_playtime_at_review_mins,
+        S.author_deck_playtime_at_review_mins,
+        S.author_last_played_timestamp, 
+        S.ingested_at,
+        CURRENT_TIMESTAMP() AS start_timestamp,
+        NULL::TIMESTAMP_NTZ AS end_timestamp,
+        TRUE AS is_current,
+        'UPDATE_INSERT' AS Action_Type
+    FROM Clean_Staging S
+    INNER JOIN STEAM_REVIEW.SILVER.dim_player_infos_scd2 AS T
+        ON S.author_steam_id = T.author_steam_id AND T.is_current = TRUE
+    WHERE
+        S.author_num_games_owned IS DISTINCT FROM T.author_num_games_owned
+        OR S.author_num_reviews IS DISTINCT FROM T.author_num_reviews
+        OR S.author_playtime_forever_mins IS DISTINCT FROM T.author_playtime_forever_mins
+        OR S.author_playtime_last_two_weeks_mins IS DISTINCT FROM T.author_playtime_last_two_weeks_mins
+        OR S.author_playtime_at_review_mins IS DISTINCT FROM T.author_playtime_at_review_mins
+        OR S.author_deck_playtime_at_review_mins IS DISTINCT FROM T.author_deck_playtime_at_review_mins
+        OR S.author_last_played_timestamp IS DISTINCT FROM T.author_last_played_timestamp
+             
+) AS Source
+ON Target.author_steam_id = Source.author_steam_id
+   AND Target.is_current = TRUE
+   AND Source.Action_Type = 'UPDATE_EXPIRE'
+
+WHEN MATCHED THEN
+    UPDATE SET
+        Target.is_current = FALSE,
+        Target.end_timestamp = Source.end_timestamp
+
+WHEN NOT MATCHED THEN
+    INSERT (
+        author_steam_id,
+        author_num_games_owned,
+        author_num_reviews,
+        author_playtime_forever_mins,
+        author_playtime_last_two_weeks_mins,
+        author_playtime_at_review_mins,
+        author_deck_playtime_at_review_mins,
+        author_last_played_timestamp, 
+        ingested_at,
+        start_timestamp,
+        end_timestamp,
+        is_current
+    )
+    VALUES (
+        Source.author_steam_id,
+        Source.author_num_games_owned,
+        Source.author_num_reviews,
+        Source.author_playtime_forever_mins,
+        Source.author_playtime_last_two_weeks_mins,
+        Source.author_playtime_at_review_mins,
+        Source.author_deck_playtime_at_review_mins,
+        Source.author_last_played_timestamp, 
+        Source.ingested_at, Source.start_timestamp, Source.end_timestamp, Source.is_current
+    );
+ALTER TASK STEAM_REVIEW.SILVER.task_merge_dim_player_info_scd2 RESUME;
