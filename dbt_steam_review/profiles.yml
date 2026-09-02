@@ -1,0 +1,24 @@
+dbt_steam_review:
+  outputs:
+    dev:
+      account: "{{ env_var('DEV_ACCOUNT') }}"
+      database: "{{ env_var('DEV_DATABASE') }}"
+      password: "{{ env_var('DEV_PASSWORD') }}"
+      role: "{{ env_var('DEV_ROLE') }}"
+      schema: "{{ env_var('DEV_SCHEMA') }}"
+      threads: "{{ env_var('DEV_THREADS') | int }}"
+      type: "{{ env_var('DEV_TYPE') }}"
+      user: "{{ env_var('DEV_USER') }}"
+      warehouse: "{{ env_var('DEV_WAREHOUSE') }}"
+
+    prod:
+      account: "{{ env_var('PROD_ACCOUNT') }}"
+      database: "{{ env_var('PROD_DATABASE') }}"
+      password: "{{ env_var('PROD_PASSWORD') }}"
+      role: "{{ env_var('PROD_ROLE') }}"
+      schema: "{{ env_var('PROD_SCHEMA') }}"
+      threads: "{{ env_var('PROD_THREADS') | int }}"
+      type: "{{ env_var('PROD_TYPE') }}"
+      user: "{{ env_var('PROD_USER') }}"
+      warehouse: "{{ env_var('PROD_WAREHOUSE') }}"
+  target: dev

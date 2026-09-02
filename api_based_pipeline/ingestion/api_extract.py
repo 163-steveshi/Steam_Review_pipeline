@@ -22,7 +22,6 @@ from api_based_pipeline.common.model import (
 )
 from .api_error import *
 
-
 PURCHASE_TYPE: set[str] = {"all", "non_steam_purchase", "steam"}
 ALLOWED_FILTERS: set[str] = {"all", "recent", "updated"}
 ALLOWED_LANGUAGE: set[str] = {
@@ -229,7 +228,7 @@ def choose_start_cursor(session: Session, app_id: int) -> str:
 
 
 def request_reviews_with_fallback(
-    appId: int,
+    app_id: int,
     filter: str,
     review_type: str,
     language: str,
@@ -245,7 +244,7 @@ def request_reviews_with_fallback(
     for attempt in range(0, MAX_ATTEMPT):
         try:
             return request_review(
-                appId,
+                app_id,
                 filter,
                 language,
                 review_type,
