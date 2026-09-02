@@ -128,4 +128,8 @@ A stream has one offset. Once Task A consumes the stream, the stream's offset ad
 create task for merge into the sc1 table
 
 14. migrate to dbt for using dbt data quality test
+
+dbt init dbt_steam_review
+
+
 15. find a way to host over github actions
