@@ -1,0 +1,55 @@
+
+version: 2
+
+sources:
+  - name: review_scd1          # This is the "Source Name"
+    database: STEAM_REVIEW           # The actual DB name in Snowflake
+    schema: SILVER   # The actual Schema name
+    tables:
+      - name: DIM_REVIEWS_SCD1      # The actual Table name
+        loaded_at_field: _DLT_UPDATED_AT   
+#tells dbt which column to use to determine when a row was loaded into that source table
+        freshness: # check if your data is stale
+          warn_after: {count: 1, period: hour}
+          error_after: {count: 3, period: hour}
+        columns:
+          - name: APP_ID
+            description: "GAME ID of the review record"
+            tests:
+              - not_null
+              - dbt_utils.not_empty_string
+          - name: COMMENT_COUNT
+            description: "Number of other player's comment in the current review record"
+            tests:
+              - not_null
+          - name: INGESTED_AT
+            description: "review ingested time: record at Snowflake in-house time"
+            tests:
+              - not_null
+              - within_range_test:
+                min_value: '2026-01-01'
+                max_value: "{{ modules.datetime.date.today() }}"
+          - name: IS_PRIMARILY_STEAM_DECK_PLAYER
+            description: "check if the current review is written by a player who plays majority over steam deck"
+            tests:
+              - not_null
+              - accepted_values:
+                values: [true, false]
+          - name: IS_RECEIVED_FOR_FREE
+            description: "check if the current review is written by a player who receives the review for free"
+            tests:
+              - not_null
+              - accepted_values:
+                values: [true, false]
+  - name: review_scd2          
+    database: STEAM_REVIEW           
+    schema: SILVER  
+    tables:
+      - name: DIM_REVIEWS_SCD2      
+        loaded_at_field: START_TIMESTAMP
+
+        freshness: 
+          warn_after: {count: 1, period: hour}
+          error_after: {count: 3, period: hour}
+
+
