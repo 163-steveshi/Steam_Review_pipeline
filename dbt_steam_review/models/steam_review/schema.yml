@@ -197,6 +197,52 @@ sources:
                   arguments:
                     min_value: "'2026-01-01'::timestamp_ntz"
                     max_value: "'{{ modules.datetime.datetime.now() }}'::timestamp_ntz"
+        tests: # model level test: test acorss tables, columns
+          - no_earlier_than_test:
+              arguments:
+                column_name_1: TIMESTAMP_CREATED 
+                column_name_2: TIMESTAMP_UPDATED
+              name: review_updated_time_no_earlier_than_review_created_time
+
+          - no_earlier_than_test:
+              arguments:
+                column_name_1: TIMESTAMP_CREATED 
+                column_name_2: TIMESTAMP_DEV_RESPONDED
+              name: developer_respond_time_no_earlier_than_review_created_time
+
+          - no_earlier_than_test:
+              arguments:
+                column_name_1: TIMESTAMP_CREATED 
+                column_name_2: INGESTED_AT
+              name: pipeline_ingestion_time_no_earlier_than_review_created_time
+
+          - no_earlier_than_test:
+              arguments:
+                column_name_1: TIMESTAMP_CREATED 
+                column_name_2: _DLT_UPDATED_AT
+              name: scd_table_update_time_no_earlier_than_review_created_time
+
+          - no_earlier_than_test:
+              arguments:
+                column_name_1: INGESTED_AT
+                column_name_2: _DLT_UPDATED_AT
+              name: scd_table_update_time_no_earlier_than_review_ingestion_time
+
+          - app_review_date_not_before_test:
+              arguments:
+                app_id_column: APP_ID
+                checked_app_id: 730
+                date_column: TIMESTAMP_CREATED
+                expected_date: "'2012-08-21'::timestamp_ntz"
+              name: cs_go_review_create_time_should_no_existed_before_game_launch
+                    
+          - app_review_date_not_before_test:
+              arguments:
+                app_id_column: APP_ID
+                checked_app_id: 730
+                date_column: TIMESTAMP_UPDATED
+                expected_date: "'2012-08-21'::timestamp_ntz"
+              name: cs_go_review_update_time_should_no_existed_before_game_launch
 
   - name: review_scd2          
     database: STEAM_REVIEW           
