@@ -6,41 +6,198 @@ sources:
     database: STEAM_REVIEW           # The actual DB name in Snowflake
     schema: SILVER   # The actual Schema name
     tables:
-      - name: DIM_REVIEWS_SCD1      # The actual Table name
-        loaded_at_field: _DLT_UPDATED_AT   
+      - name: DIM_REVIEWS_SCD1      # The actual Table name  
 #tells dbt which column to use to determine when a row was loaded into that source table
-        freshness: # check if your data is stale
-          warn_after: {count: 1, period: hour}
-          error_after: {count: 3, period: hour}
+        config:
+          loaded_at_field: _DLT_UPDATED_AT  
+          freshness: # check if your data is stale
+            warn_after: {count: 1, period: hour}
+            error_after: {count: 3, period: hour}
         columns:
           - name: APP_ID
             description: "GAME ID of the review record"
             tests:
               - not_null
               - dbt_utils.not_empty_string
+
           - name: COMMENT_COUNT
             description: "Number of other player's comment in the current review record"
             tests:
               - not_null
+              - dbt_expectations.expect_column_values_to_be_of_type:
+                  arguments:
+                    column_type: number
+              - dbt_expectations.expect_column_values_to_be_between:
+                  arguments:
+                    min_value: 0
+
           - name: INGESTED_AT
             description: "review ingested time: record at Snowflake in-house time"
             tests:
               - not_null
+              - dbt_expectations.expect_column_values_to_be_of_type:
+                  arguments:
+                    column_type: timestamp_ntz
               - within_range_test:
-                min_value: '2026-01-01'
-                max_value: "{{ modules.datetime.date.today() }}"
+                  arguments:
+                    min_value: "'2026-01-01'::timestamp_ntz"
+                    max_value: "'{{ modules.datetime.datetime.now() }}'::timestamp_ntz"
+
           - name: IS_PRIMARILY_STEAM_DECK_PLAYER
             description: "check if the current review is written by a player who plays majority over steam deck"
             tests:
               - not_null
+              - dbt_expectations.expect_column_values_to_be_of_type:
+                  arguments:
+                    column_type: boolean     
               - accepted_values:
-                values: [true, false]
+                  arguments:
+                    values: [true, false]
+
           - name: IS_RECEIVED_FOR_FREE
-            description: "check if the current review is written by a player who receives the review for free"
+            description: "check if the current review is written by a player who receives the game for free"
+            tests:
+              - not_null
+              - dbt_expectations.expect_column_values_to_be_of_type:
+                  arguments:
+                    column_type: boolean     
+              - accepted_values:
+                  arguments:
+                    values: [true, false]
+
+          - name: IS_STEAM_PURCHASE
+            description: "check if the current review is written by a player who buys the game within the steam platform"
+            tests:
+              - not_null
+              - dbt_expectations.expect_column_values_to_be_of_type:
+                  arguments:
+                    column_type: boolean              
+              - accepted_values:
+                  arguments:
+                    values: [true, false]
+
+          - name: IS_WRITTEN_DURING_EARLY_ACCESS
+            description: "check if the current review is written by a player who reviews the game during the game earlier development stage"
+            tests:
+              - not_null
+              - dbt_expectations.expect_column_values_to_be_of_type:
+                  arguments:
+                    column_type: boolean
+              - accepted_values:
+                  arguments:
+                    values: [true, false]
+
+          - name: LANGUAGE
+            description: "The lanaguge code of the review:https://partner.steamgames.com/doc/store/localization/languages"
             tests:
               - not_null
               - accepted_values:
-                values: [true, false]
+                  arguments:
+                    values: ["all", "arabic", "bulgarian", "schinese", "tchinese","czech", "danish", "dutch", "english","finnish", "french", "german", "greek", "hungarian", "indonesian", "italian","japanese", "koreana","norwegian", "polish", "portuguese", "brazilian", "romanian", "russian","spanish","latam","swedish", "thai","turkish","ukrainian", "vietnamese"]
+
+          - name: REACTIONS
+            description: "other user's emoji reaction over the current comment in [{'count': 2,'reaction_type':31}, ...] format"
+            tests:
+              - not_null
+              - valid_reaction_test
+
+
+          - name: REVIEW
+            description: "The context of the game review"
+            tests:
+              - not_null
+
+          - name: REVIEW_ID
+            description: "The review identifier, the primary key of the table"
+            tests:
+              - not_null
+              - dbt_utils.not_empty_string
+              - unique
+          - name: TIMESTAMP_CREATED
+            description: "The review created time in utc-0"
+            tests:
+              - not_null
+              - dbt_expectations.expect_column_values_to_be_of_type:
+                  arguments:
+                    column_type: timestamp_ntz
+              - within_range_test:
+                  arguments:
+                    min_value: "'2003-09-12'::timestamp_ntz"
+                    max_value: "'{{ modules.datetime.datetime.now() }}'::timestamp_ntz"
+
+          - name: TIMESTAMP_DEV_RESPONDED
+            description: "Developer responed time in utc-0"
+            tests:
+              - within_range_test:
+                  arguments:
+                    min_value: "'2003-09-12'::timestamp_ntz"
+                    max_value: "'{{ modules.datetime.datetime.now() }}'::timestamp_ntz"
+
+          - name: TIMESTAMP_UPDATED
+            description: "The review updated time in utc-0"
+            tests:
+              - not_null
+              - dbt_expectations.expect_column_values_to_be_of_type:
+                  arguments:
+                    column_type: timestamp_ntz
+              - within_range_test:
+                  arguments:
+                    min_value: "'2003-09-12'::timestamp_ntz"
+                    max_value: "'{{ modules.datetime.datetime.now() }}'::timestamp_ntz"
+
+          - name: VOTED_POSITIVE
+            description: "The flag determine the review is positive or negative"
+            tests:
+              - not_null
+              - dbt_expectations.expect_column_values_to_be_of_type:
+                  arguments:
+                    column_type: boolean
+              - accepted_values:
+                  arguments:
+                    values: [true, false]
+
+          - name: VOTES_FUNNY
+            description: "Number of player thinks this review is funny"
+            tests:
+              - not_null
+              - dbt_expectations.expect_column_values_to_be_of_type:
+                  arguments:
+                    column_type: number
+              - dbt_expectations.expect_column_values_to_be_between:
+                  arguments:
+                    min_value: 0
+
+          - name: VOTES_HELPFUL
+            description: "Number of player thinks this review is helpful"
+            tests:
+              - not_null
+              - dbt_expectations.expect_column_values_to_be_of_type:
+                  arguments:
+                    column_type: number
+              - dbt_expectations.expect_column_values_to_be_between:
+                  arguments:
+                    min_value: 0
+
+          - name: WEIGHTED_VOTE_SCORE
+            description: "Steam review system weight score on this review in float"
+            tests:
+              - not_null
+              - dbt_expectations.expect_column_values_to_be_of_type:
+                  arguments:
+                    column_type: float
+              - dbt_expectations.expect_column_values_to_be_between:
+                  arguments:
+                    min_value: 0
+
+          - name: _DLT_UPDATED_AT
+            description: "SCD1 table perform changes on this record time in utc-0"
+            tests:
+              - not_null
+              - within_range_test:
+                  arguments:
+                    min_value: "'2026-01-01'::timestamp_ntz"
+                    max_value: "'{{ modules.datetime.datetime.now() }}'::timestamp_ntz"
+
   - name: review_scd2          
     database: STEAM_REVIEW           
     schema: SILVER  
