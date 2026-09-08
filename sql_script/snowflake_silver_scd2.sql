@@ -173,7 +173,8 @@ ALTER TASK STEAM_REVIEW.SILVER.task_merge_dim_reviews_scd2 RESUME;
 
 
 CREATE OR REPLACE TABLE STEAM_REVIEW.SILVER.dim_player_infos_scd2 (
-    author_steam_id                        STRING PRIMARY KEY,
+    author_steam_id                        STRING,
+    review_id                              STRING,          
     author_num_games_owned                 BIGINT,
     author_num_reviews                     BIGINT,
     author_playtime_forever_mins           BIGINT,
@@ -182,9 +183,10 @@ CREATE OR REPLACE TABLE STEAM_REVIEW.SILVER.dim_player_infos_scd2 (
     author_deck_playtime_at_review_mins    BIGINT,
     author_last_played_timestamp           TIMESTAMP_NTZ,
     ingested_at                            TIMESTAMP_NTZ,
-    start_timestamp                   TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP(),
-    end_timestamp                     TIMESTAMP_NTZ,
-    is_current                        BOOLEAN
+    start_timestamp                        TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP(),
+    end_timestamp                          TIMESTAMP_NTZ,
+    is_current                             BOOLEAN,
+    CONSTRAINT pk_player_infos PRIMARY KEY (author_steam_id, review_id)
 );
 
 CREATE OR REPLACE STREAM  STEAM_REVIEW.SILVER.steam_reviews_flagged_stream_player_info_scd2
@@ -215,6 +217,7 @@ USING (
     -- 1. Brand new record
     SELECT
         S.author_steam_id,
+        S.review_id,
         S.author_num_games_owned,
         S.author_num_reviews,
         S.author_playtime_forever_mins,
@@ -237,6 +240,7 @@ USING (
     -- 2. Expire existing current row that changed
     SELECT
         T.author_steam_id,
+        T.review_id,
         T.author_num_games_owned,
         T.author_num_reviews,
         T.author_playtime_forever_mins,
@@ -266,6 +270,7 @@ USING (
     -- 3. New active version of a changed row
     SELECT
         S.author_steam_id,
+        S.review_id,
         S.author_num_games_owned,
         S.author_num_reviews,
         S.author_playtime_forever_mins,
@@ -303,6 +308,7 @@ WHEN MATCHED THEN
 WHEN NOT MATCHED THEN
     INSERT (
         author_steam_id,
+        review_id,
         author_num_games_owned,
         author_num_reviews,
         author_playtime_forever_mins,
@@ -317,6 +323,7 @@ WHEN NOT MATCHED THEN
     )
     VALUES (
         Source.author_steam_id,
+        Source.review_id,
         Source.author_num_games_owned,
         Source.author_num_reviews,
         Source.author_playtime_forever_mins,
