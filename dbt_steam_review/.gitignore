@@ -5,3 +5,4 @@ logs/
 .env
 .user.yml
 README.md
+.envrc
