@@ -6,7 +6,7 @@ sources:
     database: STEAM_REVIEW           # The actual DB name in Snowflake
     schema: SILVER   # The actual Schema name
     tables:
-      - name: DIM_PLAYER_INFO_SCD1      #
+      - name: DIM_PLAYER_INFOS_SCD1      #
         config:
           loaded_at_field: _DLT_UPDATED_AT  
           freshness: # check if your data is stale
