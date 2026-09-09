@@ -286,7 +286,7 @@ WHEN NOT MATCHED THEN
 ALTER TASK STEAM_REVIEW.SILVER.task_merge_dim_review_scd1 RESUME;
 
 
-CREATE TABLE IF NOT EXISTS STEAM_REVIEW.SILVER.dim_player_info_scd1 (
+CREATE TABLE IF NOT EXISTS STEAM_REVIEW.SILVER.dim_player_infos_scd1 (
     author_steam_id                        STRING,
     review_id                              STRING,
     author_num_games_owned                 BIGINT,
@@ -304,12 +304,12 @@ CREATE TABLE IF NOT EXISTS STEAM_REVIEW.SILVER.dim_player_info_scd1 (
 CREATE STREAM IF NOT EXISTS STEAM_REVIEW.SILVER.steam_reviews_flagged_stream_player
   ON DYNAMIC TABLE STEAM_REVIEW.SILVER.steam_reviews_flagged
   APPEND_ONLY = FALSE;
-CREATE TASK IF NOT EXISTS STEAM_REVIEW.SILVER.task_merge_dim_player_info_scd1
+CREATE TASK IF NOT EXISTS STEAM_REVIEW.SILVER.task_merge_dim_player_infos_scd1
   WAREHOUSE = COMPUTE_WH
   SCHEDULE = '10 minutes'
   WHEN SYSTEM$STREAM_HAS_DATA('STEAM_REVIEW.SILVER.steam_reviews_flagged_stream_player')
 AS
-MERGE INTO  STEAM_REVIEW.SILVER.dim_player_info_scd1 AS tgt
+MERGE INTO  STEAM_REVIEW.SILVER.dim_player_infos_scd1 AS tgt
 USING (
     SELECT
         author_steam_id,
@@ -371,4 +371,4 @@ WHEN NOT MATCHED THEN
         src.author_last_played_timestamp, src.ingested_at, CURRENT_TIMESTAMP()
     );
 
-ALTER TASK STEAM_REVIEW.SILVER.task_merge_dim_player_info_scd1 RESUME;
+ALTER TASK STEAM_REVIEW.SILVER.task_merge_dim_player_infos_scd1 RESUME;
