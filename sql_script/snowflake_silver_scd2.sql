@@ -191,6 +191,7 @@ CREATE OR REPLACE TABLE STEAM_REVIEW.SILVER.dim_player_infos_scd2 (
     start_timestamp                        TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP(),
     end_timestamp                          TIMESTAMP_NTZ,
     is_current                             BOOLEAN,
+    _DLT_UPDATED_AT                        TIMESTAMP_NTZ,
     CONSTRAINT pk_player_infos PRIMARY KEY (author_steam_id, review_id)
 );
 
@@ -234,6 +235,7 @@ USING (
         CURRENT_TIMESTAMP() AS start_timestamp,
         NULL::TIMESTAMP_NTZ AS end_timestamp,
         TRUE AS is_current,
+        CURRENT_TIMESTAMP() AS _DLT_UPDATED_AT,                  
         'INSERT' AS Action_Type
     FROM Clean_Staging S
     LEFT JOIN STEAM_REVIEW.SILVER.dim_player_infos_scd2 AS T
@@ -257,6 +259,7 @@ USING (
         T.start_timestamp,
         CURRENT_TIMESTAMP() AS end_timestamp,
         FALSE AS is_current,
+        CURRENT_TIMESTAMP() AS _DLT_UPDATED_AT,  
         'UPDATE_EXPIRE' AS Action_Type
     FROM Clean_Staging S
     INNER JOIN STEAM_REVIEW.SILVER.dim_player_infos_scd2 AS T
@@ -287,6 +290,7 @@ USING (
         CURRENT_TIMESTAMP() AS start_timestamp,
         NULL::TIMESTAMP_NTZ AS end_timestamp,
         TRUE AS is_current,
+        CURRENT_TIMESTAMP() AS _DLT_UPDATED_AT,  
         'UPDATE_INSERT' AS Action_Type
     FROM Clean_Staging S
     INNER JOIN STEAM_REVIEW.SILVER.dim_player_infos_scd2 AS T
@@ -324,7 +328,8 @@ WHEN NOT MATCHED THEN
         ingested_at,
         start_timestamp,
         end_timestamp,
-        is_current
+        is_current,
+        _DLT_UPDATED_AT  
     )
     VALUES (
         Source.author_steam_id,
@@ -336,6 +341,7 @@ WHEN NOT MATCHED THEN
         Source.author_playtime_at_review_mins,
         Source.author_deck_playtime_at_review_mins,
         Source.author_last_played_timestamp, 
-        Source.ingested_at, Source.start_timestamp, Source.end_timestamp, Source.is_current
+        Source.ingested_at, Source.start_timestamp, Source.end_timestamp, Source.is_current,
+        Source._DLT_UPDATED_AT  
     );
 ALTER TASK STEAM_REVIEW.SILVER.task_merge_dim_player_info_scd2 RESUME;

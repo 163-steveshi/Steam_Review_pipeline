@@ -138,10 +138,129 @@ sources:
     schema: SILVER  
     tables:
       - name: DIM_PLAYER_INFO_SCD2      
-        loaded_at_field: START_TIMESTAMP
+        config:
+          loaded_at_field: _DLT_UPDATED_AT  
+          freshness: # check if your data is stale
+            warn_after: {count: 1, period: hour}
+            error_after: {count: 3, period: hour}
+        columns:
+          - name: AUTHOR_STEAM_ID
+            description: "Unique Steam ID of the review author. Natural key / grain of this table."
+            tests:
+              - not_null
 
-        freshness: 
-          warn_after: {count: 1, period: hour}
-          error_after: {count: 3, period: hour}
+          - name: REVIEW_ID
+            description: "ID of the most recent review that contributed to this author snapshot. Not a durable relationship — may change between runs as newer reviews from the same author are ingested; for a stable author-review link use dim_player_infos_scd2."
+            tests:
+              - unique
+              - not_null
+
+          - name: AUTHOR_NUM_GAMES_OWNED
+            description: "Number of games owned(purchased) by the author on Steam, as of the most recent ingested review."
+            tests:
+              - not_null
+              - dbt_expectations.expect_column_values_to_be_of_type:
+                  arguments:
+                    column_type: number
+              - dbt_expectations.expect_column_values_to_be_between:
+                  arguments:
+                    min_value: 0
+
+          - name: AUTHOR_NUM_REVIEWS
+            description: "Total number of reviews the author has written on Steam, as of the most recent ingested review."
+            tests:
+              - not_null
+              - dbt_expectations.expect_column_values_to_be_of_type:
+                  arguments:
+                    column_type: number
+              - dbt_expectations.expect_column_values_to_be_between:
+                  arguments:
+                    min_value: 1
+
+          - name: AUTHOR_PLAYTIME_FOREVER_MINS
+            description: "Author's total lifetime playtime (in minutes) for the reviewed app, as of the most recent ingested review."
+            tests:
+              - not_null
+              - dbt_expectations.expect_column_values_to_be_of_type:
+                  arguments:
+                    column_type: number
+              - dbt_expectations.expect_column_values_to_be_between:
+                  arguments:
+                    min_value: 5
+
+          - name: AUTHOR_PLAYTIME_LAST_TWO_WEEKS_MINS
+            description: "Author's playtime (in minutes) for the reviewed app over the last two weeks, as of the most recent ingested review."
+            tests:
+              - not_null
+              - dbt_expectations.expect_column_values_to_be_of_type:
+                  arguments:
+                    column_type: number
+              - dbt_expectations.expect_column_values_to_be_between:
+                  arguments:
+                    min_value: 0              
+
+          - name: AUTHOR_PLAYTIME_AT_REVIEW_MINS
+            description: "Author's playtime (in minutes) for the reviewed app at the moment the most recent review was written."
+            tests:
+              - not_null
+              - dbt_expectations.expect_column_values_to_be_of_type:
+                  arguments:
+                    column_type: number
+              - dbt_expectations.expect_column_values_to_be_between:
+                  arguments:
+                    min_value: 5            
+
+          - name: AUTHOR_DECK_PLAYTIME_AT_REVIEW_MINS
+            description: "Author's Steam Deck playtime (in minutes) for the reviewed app at the moment the most recent review was written."
+            tests:
+              - not_null
+              - dbt_expectations.expect_column_values_to_be_of_type:
+                  arguments:
+                    column_type: number
+              - dbt_expectations.expect_column_values_to_be_between:
+                  arguments:
+                    min_value: 0
+
+          - name: AUTHOR_LAST_PLAYED_TIMESTAMP
+            description: "Timestamp of the last time the author played the reviewed app, as of the most recent ingested review."
+            tests:
+              - not_null
+              - dbt_expectations.expect_column_values_to_be_of_type:
+                  arguments:
+                    column_type: timestamp_ntz
+              - within_range_test:
+                  arguments:
+                    min_value: "'2003-09-12'::timestamp_ntz"
+                    max_value: "'{{ modules.datetime.datetime.now() }}'::timestamp_ntz"            
+
+          - name: INGESTED_AT
+            description: "Timestamp at which the source row (from steam_reviews_flagged) that produced this snapshot was ingested."
+            tests:
+              - not_null
+              - dbt_expectations.expect_column_values_to_be_of_type:
+                  arguments:
+                    column_type: timestamp_ntz
+              - within_range_test:
+                  arguments:
+                    min_value: "'2026-01-01'::timestamp_ntz"
+                    max_value: "'{{ modules.datetime.datetime.now() }}'::timestamp_ntz"
+
+          - name: _DLT_UPDATED_AT
+            description: "Timestamp at which this row was last inserted or updated by the MERGE process (pipeline-managed audit column)."
+            tests:
+              - not_null
+              - within_range_test:
+                  arguments:
+                    min_value: "'2026-01-01'::timestamp_ntz"
+                    max_value: "'{{ modules.datetime.datetime.now() }}'::timestamp_ntz"
+        tests: # model level test: test acorss tables, columns
+          - last_play_not_before_review_create_test:
+              arguments:
+                  date_column: AUTHOR_LAST_PLAYED_TIMESTAMP
+                  app_id_column: APP_ID
+                  checked_app_id: 730
+                  join_model: "source('review_scd1', 'DIM_REVIEWS_SCD1')"
+                  expected_date: "'2012-08-21'::timestamp_ntz"
+                  join_key: REVIEW_ID
 
 
