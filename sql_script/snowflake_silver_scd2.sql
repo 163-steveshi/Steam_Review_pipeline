@@ -20,7 +20,8 @@ CREATE OR REPLACE TABLE STEAM_REVIEW.SILVER.dim_reviews_scd2 (
     ingested_at                       TIMESTAMP_NTZ,
     start_timestamp                   TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP(),
     end_timestamp                     TIMESTAMP_NTZ,
-    is_current                        BOOLEAN
+    is_current                        BOOLEAN,
+    _DLT_UPDATED_AT                   TIMESTAMP_NTZ
 );
 
 CREATE OR REPLACE STREAM STEAM_REVIEW.SILVER.steam_reviews_flagged_stream_scd2
@@ -60,6 +61,7 @@ USING (
         CURRENT_TIMESTAMP() AS start_timestamp,
         NULL::TIMESTAMP_NTZ AS end_timestamp,
         TRUE AS is_current,
+        CURRENT_TIMESTAMP() AS _DLT_UPDATED_AT,
         'INSERT' AS Action_Type
     FROM Clean_Staging S
     LEFT JOIN STEAM_REVIEW.SILVER.dim_reviews_scd2 AS T
@@ -80,6 +82,7 @@ USING (
         T.start_timestamp,
         CURRENT_TIMESTAMP() AS end_timestamp,
         FALSE AS is_current,
+        CURRENT_TIMESTAMP() AS _DLT_UPDATED_AT,
         'UPDATE_EXPIRE' AS Action_Type
     FROM Clean_Staging S
     INNER JOIN STEAM_REVIEW.SILVER.dim_reviews_scd2 AS T
@@ -117,6 +120,7 @@ USING (
         CURRENT_TIMESTAMP() AS start_timestamp,
         NULL::TIMESTAMP_NTZ AS end_timestamp,
         TRUE AS is_current,
+        CURRENT_TIMESTAMP() AS _DLT_UPDATED_AT,
         'UPDATE_INSERT' AS Action_Type
     FROM Clean_Staging S
     INNER JOIN STEAM_REVIEW.SILVER.dim_reviews_scd2 AS T
@@ -147,7 +151,8 @@ ON Target.review_id = Source.review_id
 WHEN MATCHED THEN
     UPDATE SET
         Target.is_current = FALSE,
-        Target.end_timestamp = Source.end_timestamp
+        Target.end_timestamp = Source.end_timestamp,
+        Target._DLT_UPDATED_AT = Source._DLT_UPDATED_AT
 
 WHEN NOT MATCHED THEN
     INSERT (
@@ -157,7 +162,7 @@ WHEN NOT MATCHED THEN
         comment_count, is_steam_purchase, is_received_for_free,
         is_written_during_early_access, developer_response,
         timestamp_dev_responded, is_primarily_steam_deck_player,
-        reactions, ingested_at, start_timestamp, end_timestamp, is_current
+        reactions, ingested_at, start_timestamp, end_timestamp, is_current,_DLT_UPDATED_AT
     )
     VALUES (
         Source.review_id, Source.app_id, Source.language, Source.review,
@@ -166,7 +171,7 @@ WHEN NOT MATCHED THEN
         Source.comment_count, Source.is_steam_purchase, Source.is_received_for_free,
         Source.is_written_during_early_access, Source.developer_response,
         Source.timestamp_dev_responded, Source.is_primarily_steam_deck_player,
-        Source.reactions, Source.ingested_at, Source.start_timestamp, Source.end_timestamp, Source.is_current
+        Source.reactions, Source.ingested_at, Source.start_timestamp, Source.end_timestamp, Source.is_current, Source._DLT_UPDATED_AT
     );
 ALTER TASK STEAM_REVIEW.SILVER.task_merge_dim_reviews_scd2 RESUME;
 
