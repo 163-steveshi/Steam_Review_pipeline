@@ -123,16 +123,14 @@ sources:
                     min_value: "'2026-01-01'::timestamp_ntz"
                     max_value: "'{{ modules.datetime.datetime.now() }}'::timestamp_ntz"
         tests: # model level test: test acorss tables, columns
-
-          # TODO: rewrite it need to be join again:
-          # test the last play timestamp against the app release date 
-          # - app_review_date_not_before_test:
-          #     arguments:
-          #       app_id_column: APP_ID
-          #       checked_app_id: 730
-          #       date_column: AUTHOR_LAST_PLAYED_TIMESTAMP
-          #       expected_date: "'2012-08-21'::timestamp_ntz"
-          #     name: cs_go_player_last_play_time_should_no_existed_before_game_launch
+          - last_play_not_before_review_create_test:
+              arguments:
+                  date_column: AUTHOR_LAST_PLAYED_TIMESTAMP
+                  app_id_column: APP_ID
+                  checked_app_id: 730
+                  join_model: "source('review_scd1', 'DIM_REVIEWS_SCD1')"
+                  expected_date: "'2012-08-21'::timestamp_ntz"
+                  join_key: REVIEW_ID
                     
 
   - name: player_info_scd2 

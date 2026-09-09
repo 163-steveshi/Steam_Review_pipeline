@@ -133,6 +133,6 @@ dbt init dbt_steam_review
 
 
 dbt test --select source:review_scd1.DIM_REVIEWS_SCD1
- dbt test --select source:player_info_scd1.DIM_PLAYER_INFO_SCD1
+dbt test --select source:player_info_scd1.DIM_PLAYER_INFO_SCD1
 
 15. find a way to host over github actions
