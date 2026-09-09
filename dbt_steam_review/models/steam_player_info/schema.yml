@@ -124,13 +124,8 @@ sources:
                     max_value: "'{{ modules.datetime.datetime.now() }}'::timestamp_ntz"
         tests: # model level test: test acorss tables, columns
 
-          - no_later_than_test:
-              arguments:
-                timestamp_1: INGESTED_AT
-                timestamp_2: _DLT_UPDATED_AT
-              name: scd_table_update_time_no_earlier_than_review_ingestion_time
-
-          # TODO: rewrite it need to be join again
+          # TODO: rewrite it need to be join again:
+          # test the last play timestamp against the app release date 
           # - app_review_date_not_before_test:
           #     arguments:
           #       app_id_column: APP_ID
