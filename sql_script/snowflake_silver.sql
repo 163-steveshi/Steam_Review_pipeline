@@ -286,8 +286,9 @@ WHEN NOT MATCHED THEN
 ALTER TASK STEAM_REVIEW.SILVER.task_merge_dim_review_scd1 RESUME;
 
 
-CREATE TABLE IF NOT EXISTS STEAM_REVIEW.SILVER.dim_player_info_scd1 (
-    author_steam_id                        STRING PRIMARY KEY,
+CREATE TABLE IF NOT EXISTS STEAM_REVIEW.SILVER.dim_player_infos_scd1 (
+    author_steam_id                        STRING,
+    review_id                              STRING,
     author_num_games_owned                 BIGINT,
     author_num_reviews                     BIGINT,
     author_playtime_forever_mins           BIGINT,
@@ -296,21 +297,23 @@ CREATE TABLE IF NOT EXISTS STEAM_REVIEW.SILVER.dim_player_info_scd1 (
     author_deck_playtime_at_review_mins    BIGINT,
     author_last_played_timestamp           TIMESTAMP_NTZ,
     ingested_at                            TIMESTAMP_NTZ,
-    _dlt_updated_at                        TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP()
+    _dlt_updated_at                        TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP(),
+    CONSTRAINT pk_player_infos PRIMARY KEY (author_steam_id, review_id)
 );
 
 CREATE STREAM IF NOT EXISTS STEAM_REVIEW.SILVER.steam_reviews_flagged_stream_player
   ON DYNAMIC TABLE STEAM_REVIEW.SILVER.steam_reviews_flagged
   APPEND_ONLY = FALSE;
-CREATE TASK IF NOT EXISTS STEAM_REVIEW.SILVER.task_merge_dim_player_info_scd1
+CREATE TASK IF NOT EXISTS STEAM_REVIEW.SILVER.task_merge_dim_player_infos_scd1
   WAREHOUSE = COMPUTE_WH
   SCHEDULE = '10 minutes'
   WHEN SYSTEM$STREAM_HAS_DATA('STEAM_REVIEW.SILVER.steam_reviews_flagged_stream_player')
 AS
-MERGE INTO  STEAM_REVIEW.SILVER.dim_player_info_scd1 AS tgt
+MERGE INTO  STEAM_REVIEW.SILVER.dim_player_infos_scd1 AS tgt
 USING (
     SELECT
         author_steam_id,
+        review_id,
         author_num_games_owned,
         author_num_reviews,
         author_playtime_forever_mins,
@@ -356,16 +359,16 @@ WHEN MATCHED AND (
 
 WHEN NOT MATCHED THEN
     INSERT (
-        author_steam_id, author_num_games_owned, author_num_reviews,
+        author_steam_id, review_id, author_num_games_owned, author_num_reviews,
         author_playtime_forever_mins, author_playtime_last_two_weeks_mins,
         author_playtime_at_review_mins, author_deck_playtime_at_review_mins,
         author_last_played_timestamp, ingested_at, _dlt_updated_at
     )
     VALUES (
-        src.author_steam_id, src.author_num_games_owned, src.author_num_reviews,
+        src.author_steam_id, src.review_id, src.author_num_games_owned, src.author_num_reviews,
         src.author_playtime_forever_mins, src.author_playtime_last_two_weeks_mins,
         src.author_playtime_at_review_mins, src.author_deck_playtime_at_review_mins,
         src.author_last_played_timestamp, src.ingested_at, CURRENT_TIMESTAMP()
     );
 
-ALTER TASK STEAM_REVIEW.SILVER.task_merge_dim_player_info_scd1 RESUME;
+ALTER TASK STEAM_REVIEW.SILVER.task_merge_dim_player_infos_scd1 RESUME;
