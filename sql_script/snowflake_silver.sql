@@ -372,3 +372,252 @@ WHEN NOT MATCHED THEN
     );
 
 ALTER TASK STEAM_REVIEW.SILVER.task_merge_dim_player_infos_scd1 RESUME;
+
+
+
+CREATE OR REPLACE DYNAMIC TABLE STEAM_REVIEW.silver.steam_reviews_flagged
+  TARGET_LAG = '1 hour'   -- shorter lag = warehouse wakes more often = more credits
+  WAREHOUSE  = COMPUTE_WH
+  COMMENT    = 'Intermediate table: trims, casts and flags validity. Nothing is dropped here.'
+AS
+WITH cleaned AS (
+    -- ===== STEP 1: trim text; empty or whitespace-only strings become NULL =====
+    SELECT
+        NULLIF(TRIM(review_id), '')                       AS review_id,
+        NULLIF(TRIM(app_id), '')                          AS app_id,
+        NULLIF(TRIM(author_steam_id), '')                 AS author_steam_id,
+
+        NULLIF(TRIM(author_num_games_owned), '')          AS author_num_games_owned,
+        NULLIF(TRIM(author_num_reviews), '')              AS author_num_reviews,
+        NULLIF(TRIM(author_playtime_forever), '')         AS author_playtime_forever,
+        NULLIF(TRIM(author_playtime_last_two_weeks), '')  AS author_playtime_last_two_weeks,
+        NULLIF(TRIM(author_playtime_at_review), '')       AS author_playtime_at_review,
+        NULLIF(TRIM(author_deck_playtime_at_review), '')  AS author_deck_playtime_at_review,
+        NULLIF(TRIM(author_last_played), '')              AS author_last_played,
+
+        LOWER(NULLIF(TRIM(language), ''))                 AS language,
+        NULLIF(TRIM(review), '')                          AS review,
+        (review IS NOT NULL AND NULLIF(TRIM(review), '') IS NULL)
+                                                          AS is_review_blank,
+
+        NULLIF(TRIM(timestamp_created), '')               AS timestamp_created,
+        NULLIF(TRIM(timestamp_updated), '')               AS timestamp_updated,
+        NULLIF(TRIM(voted_up), '')                        AS voted_up,
+        NULLIF(TRIM(votes_up), '')                        AS votes_up,
+        NULLIF(TRIM(votes_funny), '')                     AS votes_funny,
+        NULLIF(TRIM(weighted_vote_score), '')             AS weighted_vote_score,
+        NULLIF(TRIM(comment_count), '')                   AS comment_count,
+        NULLIF(TRIM(steam_purchase), '')                  AS steam_purchase,
+        NULLIF(TRIM(received_for_free), '')               AS received_for_free,
+        NULLIF(TRIM(written_during_early_access), '')     AS written_during_early_access,
+        NULLIF(TRIM(developer_response), '')              AS developer_response,
+        NULLIF(TRIM(timestamp_dev_responded), '')         AS timestamp_dev_responded,
+        NULLIF(TRIM(primarily_steam_deck), '')            AS primarily_steam_deck,
+        NULLIF(TRIM(reactions), '')                       AS reactions,
+
+        ingested_at
+    FROM STEAM_REVIEW.BRONZE.RAW_REVIEW
+),
+
+typed AS (
+    -- ===== STEP 2: cast once; Steam timestamps are Unix epoch seconds =====
+    SELECT
+        review_id,
+        app_id,
+        author_steam_id,
+
+        author_num_games_owned                                   AS author_num_games_owned_raw,
+        TRY_TO_NUMBER(author_num_games_owned)                    AS author_num_games_owned,
+
+        author_num_reviews                                       AS author_num_reviews_raw,
+        TRY_TO_NUMBER(author_num_reviews)                        AS author_num_reviews,
+
+        author_playtime_forever                                  AS author_playtime_forever_raw,
+        TRY_TO_NUMBER(author_playtime_forever)                   AS author_playtime_forever_mins,
+
+        author_playtime_last_two_weeks                           AS author_playtime_last_two_weeks_raw,
+        TRY_TO_NUMBER(author_playtime_last_two_weeks)            AS author_playtime_last_two_weeks_mins,
+
+        author_playtime_at_review                                AS author_playtime_at_review_raw,
+        TRY_TO_NUMBER(author_playtime_at_review)                 AS author_playtime_at_review_mins,
+
+        author_deck_playtime_at_review                           AS author_deck_playtime_at_review_raw,
+        TRY_TO_NUMBER(author_deck_playtime_at_review)            AS author_deck_playtime_at_review_mins,
+
+        author_last_played                                       AS author_last_played_raw,
+        TO_TIMESTAMP_NTZ(TRY_TO_NUMBER(author_last_played))      AS author_last_played_timestamp,
+
+        language,
+        review,
+        is_review_blank,
+
+        timestamp_created                                        AS timestamp_created_raw,
+        TO_TIMESTAMP_NTZ(TRY_TO_NUMBER(timestamp_created))       AS timestamp_created,
+
+        timestamp_updated                                        AS timestamp_updated_raw,
+        TO_TIMESTAMP_NTZ(TRY_TO_NUMBER(timestamp_updated))       AS timestamp_updated,
+
+        voted_up                                                 AS voted_up_raw,
+        TRY_TO_BOOLEAN(voted_up)                                 AS voted_positive,
+
+        votes_up                                                 AS votes_up_raw,
+        TRY_TO_NUMBER(votes_up)                                  AS votes_helpful,
+
+        votes_funny                                              AS votes_funny_raw,
+        TRY_TO_NUMBER(votes_funny)                               AS votes_funny,
+
+        weighted_vote_score                                      AS weighted_vote_score_raw,
+        TRY_TO_DOUBLE(weighted_vote_score)                       AS weighted_vote_score,
+
+        comment_count                                            AS comment_count_raw,
+        TRY_TO_NUMBER(comment_count)                             AS comment_count,
+
+        steam_purchase                                           AS steam_purchase_raw,
+        TRY_TO_BOOLEAN(steam_purchase)                           AS is_steam_purchase,
+
+        received_for_free                                        AS received_for_free_raw,
+        TRY_TO_BOOLEAN(received_for_free)                        AS is_received_for_free,
+
+        written_during_early_access                              AS written_during_early_access_raw,
+        TRY_TO_BOOLEAN(written_during_early_access)              AS is_written_during_early_access,
+
+        developer_response,
+
+        timestamp_dev_responded                                  AS timestamp_dev_responded_raw,
+        TO_TIMESTAMP_NTZ(TRY_TO_NUMBER(timestamp_dev_responded)) AS timestamp_dev_responded,
+
+        primarily_steam_deck                                     AS primarily_steam_deck_raw,
+        TRY_TO_BOOLEAN(primarily_steam_deck)                     AS is_primarily_steam_deck_player,
+
+        reactions                                                AS reactions_raw,
+        TRY_PARSE_JSON(reactions)                                AS reactions,
+
+        ingested_at
+),
+
+flagged AS (
+    -- ===== STEP 3: flag problems =====
+    SELECT
+        t.*,
+
+        -- ---------- REVIEW GRAIN: FAILURES ----------
+        ARRAY_CONSTRUCT_COMPACT(
+            -- missing (after trim)
+            CASE WHEN review_id IS NULL             THEN 'review:miss_review_id' END,
+            CASE WHEN app_id IS NULL                THEN 'review:miss_app_id' END,
+            CASE WHEN review IS NULL AND NOT is_review_blank
+                                                    THEN 'review:miss_review_text' END,
+            CASE WHEN is_review_blank               THEN 'review:blank_review_text' END,
+            CASE WHEN language IS NULL              THEN 'review:miss_language' END,
+            CASE WHEN timestamp_created_raw IS NULL THEN 'review:miss_timestamp_created' END,
+            CASE WHEN voted_up_raw IS NULL          THEN 'review:miss_voted_up' END,
+
+            -- malformed (value present but cast failed)
+            CASE WHEN timestamp_created_raw IS NOT NULL AND timestamp_created IS NULL
+                 THEN 'review:timestamp_created_malformed' END,
+            CASE WHEN timestamp_updated_raw IS NOT NULL AND timestamp_updated IS NULL
+                 THEN 'review:timestamp_updated_malformed' END,
+            CASE WHEN voted_up_raw IS NOT NULL AND voted_positive IS NULL
+                 THEN 'review:voted_up_malformed' END,
+            CASE WHEN votes_up_raw IS NOT NULL AND votes_helpful IS NULL
+                 THEN 'review:votes_up_malformed' END,
+            CASE WHEN votes_funny_raw IS NOT NULL AND votes_funny IS NULL
+                 THEN 'review:votes_funny_malformed' END,
+            CASE WHEN weighted_vote_score_raw IS NOT NULL AND weighted_vote_score IS NULL
+                 THEN 'review:weighted_vote_score_malformed' END,
+            CASE WHEN comment_count_raw IS NOT NULL AND comment_count IS NULL
+                 THEN 'review:comment_count_malformed' END,
+            CASE WHEN steam_purchase_raw IS NOT NULL AND is_steam_purchase IS NULL
+                 THEN 'review:steam_purchase_malformed' END,
+            CASE WHEN received_for_free_raw IS NOT NULL AND is_received_for_free IS NULL
+                 THEN 'review:received_for_free_malformed' END,
+            CASE WHEN written_during_early_access_raw IS NOT NULL AND is_written_during_early_access IS NULL
+                 THEN 'review:written_during_early_access_malformed' END,
+            CASE WHEN timestamp_dev_responded_raw IS NOT NULL AND timestamp_dev_responded IS NULL
+                 THEN 'review:timestamp_dev_responded_malformed' END,
+            CASE WHEN primarily_steam_deck_raw IS NOT NULL AND is_primarily_steam_deck_player IS NULL
+                 THEN 'review:primarily_steam_deck_malformed' END,
+            CASE WHEN reactions_raw IS NOT NULL AND reactions IS NULL
+                 THEN 'review:reactions_malformed' END,
+
+            -- out of range
+            CASE WHEN votes_helpful < 0   THEN 'review:votes_up_negative' END,
+            CASE WHEN votes_funny < 0     THEN 'review:votes_funny_negative' END,
+            CASE WHEN comment_count < 0   THEN 'review:comment_count_negative' END,
+            CASE WHEN weighted_vote_score NOT BETWEEN 0 AND 1
+                 THEN 'review:weighted_vote_score_out_of_range' END,
+
+            -- impossible dates (in the future, or before Steam launched in 2003)
+            CASE WHEN timestamp_created > ingested_at
+                 THEN 'review:timestamp_created_in_future' END,
+            CASE WHEN timestamp_updated > ingested_at
+                 THEN 'review:timestamp_updated_in_future' END,
+            CASE WHEN timestamp_created < '2003-09-12'::TIMESTAMP_NTZ
+                 THEN 'review:timestamp_created_too_old' END
+        ) AS review_failure_reasons,
+
+        -- ---------- REVIEW GRAIN: WARNINGS ----------
+        ARRAY_CONSTRUCT_COMPACT(
+            CASE WHEN timestamp_updated < timestamp_created
+                 THEN 'review:warn_updated_before_created' END,
+            CASE WHEN timestamp_dev_responded IS NOT NULL AND developer_response IS NULL
+                 THEN 'review:warn_dev_timestamp_without_response' END,
+            CASE WHEN developer_response IS NOT NULL AND timestamp_dev_responded IS NULL
+                 THEN 'review:warn_dev_response_without_timestamp' END,
+            CASE WHEN timestamp_dev_responded < timestamp_created
+                 THEN 'review:warn_dev_responded_before_review' END,
+            CASE WHEN review_id IS NOT NULL AND review_id_row_count > 1
+                 THEN 'review:warn_duplicate_review_id' END
+        ) AS review_warning_reasons,
+
+        -- ---------- AUTHOR GRAIN: FAILURES ----------
+        ARRAY_CONSTRUCT_COMPACT(
+            CASE WHEN author_steam_id IS NULL THEN 'author:miss_author_steam_id' END,
+
+            -- malformed
+            CASE WHEN author_num_games_owned_raw IS NOT NULL AND author_num_games_owned IS NULL
+                 THEN 'author:num_games_owned_malformed' END,
+            CASE WHEN author_num_reviews_raw IS NOT NULL AND author_num_reviews IS NULL
+                 THEN 'author:num_reviews_malformed' END,
+            CASE WHEN author_playtime_forever_raw IS NOT NULL AND author_playtime_forever_mins IS NULL
+                 THEN 'author:playtime_forever_malformed' END,
+            CASE WHEN author_playtime_last_two_weeks_raw IS NOT NULL AND author_playtime_last_two_weeks_mins IS NULL
+                 THEN 'author:playtime_last_two_weeks_malformed' END,
+            CASE WHEN author_playtime_at_review_raw IS NOT NULL AND author_playtime_at_review_mins IS NULL
+                 THEN 'author:playtime_at_review_malformed' END,
+            CASE WHEN author_deck_playtime_at_review_raw IS NOT NULL AND author_deck_playtime_at_review_mins IS NULL
+                 THEN 'author:deck_playtime_at_review_malformed' END,
+            CASE WHEN author_last_played_raw IS NOT NULL AND author_last_played_timestamp IS NULL
+                 THEN 'author:last_played_malformed' END,
+
+            -- negative values
+            CASE WHEN author_num_games_owned < 0              THEN 'author:num_games_owned_negative' END,
+            CASE WHEN author_num_reviews < 0                  THEN 'author:num_reviews_negative' END,
+            CASE WHEN author_playtime_forever_mins < 0        THEN 'author:playtime_forever_negative' END,
+            CASE WHEN author_playtime_last_two_weeks_mins < 0 THEN 'author:playtime_last_two_weeks_negative' END,
+            CASE WHEN author_playtime_at_review_mins < 0      THEN 'author:playtime_at_review_negative' END,
+            CASE WHEN author_deck_playtime_at_review_mins < 0 THEN 'author:deck_playtime_at_review_negative' END,
+
+            -- impossible dates
+            CASE WHEN author_last_played_timestamp > ingested_at
+                 THEN 'author:last_played_in_future' END
+        ) AS review_player_failure_reasons,
+
+        -- ---------- AUTHOR GRAIN: WARNINGS ----------
+        ARRAY_CONSTRUCT_COMPACT(
+            CASE WHEN author_playtime_at_review_mins > author_playtime_forever_mins
+                 THEN 'author:warn_playtime_at_review_gt_forever' END,
+            CASE WHEN author_playtime_last_two_weeks_mins > author_playtime_forever_mins
+                 THEN 'author:warn_last_two_weeks_gt_forever' END,
+            CASE WHEN author_deck_playtime_at_review_mins > author_playtime_at_review_mins
+                 THEN 'author:warn_deck_playtime_gt_total_at_review' END
+        ) AS review_player_warning_reasons
+
+    FROM typed t
+)
+
+SELECT
+    f.*,
+    ARRAY_SIZE(review_failure_reasons) = 0        AS is_review_valid,
+    ARRAY_SIZE(review_player_failure_reasons) = 0 AS is_author_valid
+FROM flagged f;
