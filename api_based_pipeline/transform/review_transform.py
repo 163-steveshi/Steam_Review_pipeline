@@ -143,7 +143,6 @@ def parse_raw_review(raw_review: Sequence[RawReview]) -> tuple[list[dict], list[
                 "app_id": review.app_id,
                 "review_id": cleaned_review_info.recommendationid,
                 "steam_user_id": cleaned_review_info.author.steamid,
-                "num_games_owned": cleaned_review_info.author.num_games_owned,
                 "total_playtime_mins": cleaned_review_info.author.playtime_forever,
                 "playtime_last_two_weeks_mins": cleaned_review_info.author.playtime_last_two_weeks,
                 "playtime_at_review_mins": cleaned_review_info.author.playtime_at_review,
@@ -194,7 +193,6 @@ def insert_cleaned_review(
             index_elements=["app_id", "review_id"],
             set_={
                 "steam_user_id": stmt_player_info.excluded.steam_user_id,
-                "num_games_owned": stmt_player_info.excluded.num_games_owned,
                 "total_playtime_mins": stmt_player_info.excluded.total_playtime_mins,
                 "playtime_last_two_weeks_mins": stmt_player_info.excluded.playtime_last_two_weeks_mins,
                 "playtime_at_review_mins": stmt_player_info.excluded.playtime_at_review_mins,
@@ -204,9 +202,6 @@ def insert_cleaned_review(
                 # don't use != here, bad practice
                 # if column is nullable, sql treat xx != NULL as return null
                 # the sql update think update null to null reject the request
-                CleanLatestReviewPlayerInfo.num_games_owned.is_distinct_from(
-                    stmt_player_info.excluded.num_games_owned
-                ),
                 CleanLatestReviewPlayerInfo.total_playtime_mins.is_distinct_from(
                     stmt_player_info.excluded.total_playtime_mins
                 ),

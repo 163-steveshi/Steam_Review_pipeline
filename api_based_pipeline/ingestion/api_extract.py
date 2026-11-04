@@ -58,12 +58,31 @@ ALLOWED_LANGUAGE: set[str] = {
     "vietnamese",
 }
 
+# new update needed field
+FILTER_MAP = {
+    "all": 0,
+    "recent": 1,
+    "updated": 2,
+}
+
+REVIEW_TYPE_MAP = {
+    "all": 0,
+    "positive": 1,
+    "negative": 2,
+}
+
+PURCHASE_TYPE_MAP = {
+    "steam": 0,
+    "all": 1,
+    "non_steam_purchase": 2,
+}
+
 
 def request_review(
     app_id: int,
     filter: str,
     review_type: str,
-    language: str,
+    languages: list[str],
     cursor: str,
     purchase_type: str,
     num_per_page: int,
@@ -77,11 +96,13 @@ def request_review(
         raise SteamValidationError(
             "wrong filter value, only support: 'all', 'recent', 'updated'"
         )
-
-    if language not in ALLOWED_LANGUAGE:
-        raise SteamValidationError(
-            "Unsupport langauge value" + get_language_supportDoc()
-        )
+    for language in languages:
+        print(f"Checking language: {language!r}")
+        print(f"Is allowed: {language in ALLOWED_LANGUAGE}")
+        if language not in ALLOWED_LANGUAGE:
+            raise SteamValidationError(
+                "Unsupport langauge value" + get_language_supportDoc()
+            )
 
     if purchase_type not in PURCHASE_TYPE:
         raise SteamValidationError(
@@ -92,15 +113,19 @@ def request_review(
     if num_per_page < 20 or num_per_page > 100:
         raise SteamValidationError("num_per_page must be in the range of 20 to 100")
 
-    url = f"https://store.steampowered.com/appreviews/{app_id}"
+    url = "https://api.steampowered.com/IUserReviewsService/GetAppReviews/v1/"
     params = {
-        "json": 1,
-        "filter": filter,
-        "language": language,
-        "purchase_type": purchase_type,
-        "num_per_page": num_per_page,
-        "review_type": review_type,
-        "cursor": cursor,
+        "input_json": json.dumps(
+            {
+                "appid": app_id,
+                "filter": FILTER_MAP[filter],
+                "languages": languages,
+                "review_type": REVIEW_TYPE_MAP[review_type],
+                "purchase_type": PURCHASE_TYPE_MAP[purchase_type],
+                "num_per_page": num_per_page,
+                "cursor": cursor,
+            }
+        )
     }
     res = requests.get(url, params=params, timeout=10)
 
@@ -123,12 +148,9 @@ def request_review(
             "Other HTTP ERROR Please refers to the html code for reference",
             status_code=res.status_code,
         )
-    # throw error about steam api
-    if result.get("success") != 1:
-        raise SteamAPIError(result.get("error"))
-    result["app_id"] = app_id
-    print(result.get("query_summary"))
-    return SteamReviewAPIResponse.model_validate(result)
+    result["response"]["app_id"] = app_id
+    print(result.get("response").get("query_summary"))
+    return SteamReviewAPIResponse.model_validate(result.get("response"))
 
 
 def get_language_supportDoc() -> str:
@@ -231,7 +253,7 @@ def request_reviews_with_fallback(
     app_id: int,
     filter: str,
     review_type: str,
-    language: str,
+    languages: list[str],
     cursor: str,
     purchase_type: str,
     num_per_page: int,
@@ -246,8 +268,8 @@ def request_reviews_with_fallback(
             return request_review(
                 app_id,
                 filter,
-                language,
                 review_type,
+                languages,
                 used_cursor,
                 purchase_type,
                 num_per_page,
@@ -348,7 +370,7 @@ def run_ingestion(
     engine: Engine,
     app_id: int,
     filter: str,
-    language: str,
+    languages: list[str],
     review_type: str,
     purchase_type: str,
     num_per_page: int,
@@ -369,8 +391,8 @@ def run_ingestion(
                 review_data = request_reviews_with_fallback(
                     app_id,
                     filter,
-                    language,
                     review_type,
+                    languages,
                     cursor,
                     purchase_type,
                     num_per_page,
@@ -443,7 +465,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--app_id", type=int, required=True)
     parser.add_argument("--filter", default="recent")
-    parser.add_argument("--language", default="all")
+    parser.add_argument("--languages", default=["all"])
     parser.add_argument("--review_type", default="all")
     parser.add_argument("--purchase_type", default="all")
     parser.add_argument("--num_per_page", type=int, default=100)
@@ -455,7 +477,7 @@ def main():
         engine,
         args.app_id,
         args.filter,
-        args.language,
+        args.languages,
         args.review_type,
         args.purchase_type,
         args.num_per_page,

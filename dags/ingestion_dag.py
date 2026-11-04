@@ -29,7 +29,7 @@ default_args = {
     params={
         "app_ids": Param([730, 570, 440], type="array", items={"type": "integer"}),
         "filter": Param("recent", type="string", enum=["recent", "all", "updated"]),
-        "language": Param("all", type="string"),
+        "languages": Param(["all"], type="array", items={"type": "string"}),
         "review_type": Param(
             "all", type="string", enum=["all", "positive", "negative"]
         ),
@@ -46,6 +46,7 @@ def steam_review_ingestion():
     @task
     def get_app_ids(**context) -> list[int]:
         # returns actual resolved Python list, not a template string
+        print(context["params"]["app_ids"])
         return context["params"]["app_ids"]
 
     @task
@@ -61,7 +62,7 @@ def steam_review_ingestion():
                 engine=engine,
                 app_id=app_id,
                 filter=params["filter"],
-                language=params["language"],
+                languages=params["languages"],
                 review_type=params["review_type"],
                 purchase_type=params["purchase_type"],
                 num_per_page=params["num_per_page"],
@@ -77,7 +78,6 @@ def steam_review_ingestion():
             engine.dispose()
 
     # ingest multiple id
-
     ingest.expand(app_id=get_app_ids())
 
 

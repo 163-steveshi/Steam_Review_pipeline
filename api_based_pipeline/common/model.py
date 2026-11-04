@@ -138,7 +138,6 @@ class CleanLatestReviewPlayerInfo(Base):
     review_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
 
     steam_user_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
-    num_games_owned: Mapped[int] = mapped_column(BigInteger, nullable=False)
 
     # playtime_* fields (hours)
     total_playtime_mins: Mapped[int] = mapped_column(
@@ -172,7 +171,6 @@ class TransformCheckpoint(Base):
 # data model for type definition
 class Author(BaseModel):
     steamid: str
-    num_games_owned: int
     num_reviews: int
     playtime_forever: int
     playtime_last_two_weeks: int
@@ -196,7 +194,7 @@ class Review(BaseModel):
     received_for_free: bool
     written_during_early_access: bool
     primarily_steam_deck: bool
-    reactions: list
+    refunded: bool
 
 
 class QuerySummary(BaseModel):
@@ -210,7 +208,6 @@ class QuerySummary(BaseModel):
 
 
 class SteamReviewAPIResponse(BaseModel):
-    success: int
     query_summary: QuerySummary
     reviews: List[Review]
     cursor: str
