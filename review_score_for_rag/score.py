@@ -24,11 +24,28 @@ URL = re.compile(
 )
 CHECKBOX = re.compile(r"[☐☑☒✅❌]")
 
+BBCODE_BLOCK = re.compile(
+    r"\[/?(h[1-6]|list|\*|quote|table|tr|td|th|hr)(=[^\]]*)?\]", re.I
+)
+
 
 def clean_text(text: str | None) -> str:
-    """Strip Steam BBCode tags and collapse whitespace. Also used as the text to embed."""
+    """Strip Steam BBCode tags and collapse whitespace.  Use for hashing and length rules."""
     t = BBCODE.sub(" ", text or "")
     return re.sub(r"\s+", " ", t).strip()
+
+
+def clean_text_for_chunking(text: str | None) -> str:
+    """Strip Steam BBCode, keep paragraph breaks. This is what gets chunked/embedded."""
+
+    t = BBCODE_BLOCK.sub("\n", text or "")
+    t = BBCODE.sub(" ", t)
+    t = re.sub(
+        r"[^\S\n]+", " ", t
+    )  # all whitespace except \n (incl. tabs, \r, non-breaking space) -> one space
+    t = re.sub(r" *\n *", "\n", t)  # no spaces around line breaks
+    t = re.sub(r"\n{3,}", "\n\n", t)  # max one blank line
+    return t.strip()
 
 
 def text_features(t: str) -> dict:
@@ -96,7 +113,7 @@ def quality_score(f: dict, clean: str) -> float:
     if f["emoji_ratio"] > 0.1:
         score -= 0.1  # emoji-heavy but still has text
     # quality_score: shorter = ranked lower, but still eligible
-    if len(cleaned) < 100:
+    if len(clean) < 100:
         score -= 0.2
     return round(max(score, 0.0), 3)
 
@@ -104,14 +121,16 @@ def quality_score(f: dict, clean: str) -> float:
 def score_review(review_text: str | None, language: str) -> dict:
     """One call per review -> a dict that maps straight onto gold table columns."""
     cleaned = clean_text(review_text)
+    chunking_ready = clean_text_for_chunking(review_text)
     f = text_features(cleaned)
     reason = reject_reasons(f, language, cleaned)
     return {
         "clean_text": cleaned,
+        "clean_text_for_chunking": chunking_ready,
         **f,
         "text_hash": hashlib.md5(cleaned.lower().encode()).hexdigest(),  # dedup in SQL
         "reject_reason": reason,
-        "quality_score": quality_score(f, cleaned) if reason is None else None,
+        "quality_score": quality_score(f, cleaned) if not reason else None,
         "scoring_version": SCORING_VERSION,
     }
 

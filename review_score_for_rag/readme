@@ -1,0 +1,14 @@
+
+
+Test example over review text length 
+Percentile	Length	About
+50%	67 chars	~15 words, one sentence
+75%	125 chars	~30 tokens
+90%	241 chars	~60 tokens
+95%	371 chars	~90 tokens
+99%	944 chars	~235 tokens
+over 1,200 chars	0.56%	the only reviews that get split
+
+
+in test example: 
+99.4% of filtered reviews fit under 1,200 characters, so I chose 300-token chunks so that almost every review stays a single chunk, and only long reviews are split.” That shows you made the decision from data.

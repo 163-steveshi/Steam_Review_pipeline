@@ -59,12 +59,13 @@ def main():
             record["scoring_version"] = result["scoring_version"]
             record["has_char_spam"] = "char_spam" in result["reject_reason"]
             record["review_text"] = result["clean_text"]
+            record["review_text_for_chunking"] = result["clean_text_for_chunking"]
             record["dup_rank"] = -1
         UPSERT_REVIEW_RAG_SCORE = text("""
             INSERT INTO gold.review_rag_score (
                 app_id, review_id, source_raw_id, game_source_raw_id,
                 game_name, app_type, genres,
-                review_text, language,
+                review_text, review_text_for_chunking, language,
                 voted_positive, timestamp_created, timestamp_updated,
                 steam_purchase, received_for_free,
                 written_during_early_access, primarily_play_on_steam_deck,
@@ -77,7 +78,7 @@ def main():
             VALUES (
                 :app_id, :review_id, :source_raw_id, :game_source_raw_id,
                 :game_name, :app_type, :genres,
-                :review_text, :language,
+                :review_text, :review_text_for_chunking, :language,
                 :voted_positive, :timestamp_created, :timestamp_updated,
                 :steam_purchase, :received_for_free,
                 :written_during_early_access, :primarily_play_on_steam_deck,
@@ -94,6 +95,7 @@ def main():
                 app_type                     = EXCLUDED.app_type,
                 genres                       = EXCLUDED.genres,
                 review_text                  = EXCLUDED.review_text,
+                review_text_for_chunking     = EXCLUDED.review_text_for_chunking,
                 language                     = EXCLUDED.language,
                 voted_positive               = EXCLUDED.voted_positive,
                 timestamp_created            = EXCLUDED.timestamp_created,

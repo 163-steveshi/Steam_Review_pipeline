@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS gold.review_rag_score (
 
     -- content
     review_text             TEXT        NOT NULL,
+    review_text_for_chunking TEXT       NOT NULL,
     language                VARCHAR(20) NOT NULL,
 
     -- metadata filters for retrieval
@@ -47,3 +48,47 @@ CREATE TABLE IF NOT EXISTS gold.review_rag_score (
     PRIMARY KEY (app_id, review_id)
 );
 CREATE INDEX ON gold.review_rag_score (is_rag_eligible, app_id);
+
+
+CREATE TABLE IF NOT EXISTS gold.review_chunks (
+    -- keys / lineage
+    app_id              BIGINT      NOT NULL,
+    review_id           BIGINT      NOT NULL,
+    chunk_index         SMALLINT    NOT NULL,
+    chunk_count         SMALLINT    NOT NULL,          -- how many chunks this review produced
+    text_hash           CHAR(32)    NOT NULL,          -- copied from review_rag_score: detects edited reviews
+    chunker_version     TEXT        NOT NULL,          -- e.g. 'v1-300tok-40ovl'
+
+    -- content
+    content             TEXT        NOT NULL,          -- cleaned chunk text (what the LLM reads)
+
+    -- filters used INSIDE vector search (copied from review_rag_score)
+    language            VARCHAR(20) NOT NULL,
+    voted_positive      BOOLEAN     NOT NULL,
+    timestamp_created   TIMESTAMPTZ NOT NULL,
+    playtime_at_review_mins INTEGER,
+    genres              TEXT[],                        -- flattened genres JSONB for vector search the filter “does this game have genre X?”
+
+    -- embedding
+    embedding           vector(1536),                  -- NULL = waiting to be embedded
+    embed_model         TEXT,
+    embedded_at         TIMESTAMPTZ,
+
+    chunked_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+    PRIMARY KEY (app_id, review_id, chunk_index),
+    FOREIGN KEY (app_id, review_id)
+        REFERENCES gold.review_rag_score (app_id, review_id) ON DELETE CASCADE
+);
+
+-- vector search
+CREATE INDEX IF NOT EXISTS review_chunks_embedding_hnsw
+    ON gold.review_chunks USING hnsw (embedding vector_cosine_ops);
+
+-- filters
+CREATE INDEX IF NOT EXISTS review_chunks_genres_gin ON gold.review_chunks USING gin (genres);
+CREATE INDEX IF NOT EXISTS review_chunks_app_id     ON gold.review_chunks (app_id);
+
+-- embedding worker: find pending chunks fast
+CREATE INDEX IF NOT EXISTS review_chunks_pending
+    ON gold.review_chunks (app_id, review_id, chunk_index) WHERE embedding IS NULL;
