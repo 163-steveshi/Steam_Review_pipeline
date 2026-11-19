@@ -7,12 +7,20 @@ Flow per review:  clean_text -> text_features -> reject_reason -> quality_score
 Duplicates are NOT handled here (needs the whole table) -> do text_hash/dup_rank in SQL.
 
 pip install emoji
+
+-- below libaray for lanague type check and if the content is actually useful
+pip install lingua-language-detector wordfreq
+
+
 """
 
 import hashlib
 import re
 
 import emoji
+
+from lingua import LanguageDetectorBuilder, Language
+from wordfreq import zipf_frequency
 
 SCORING_VERSION = "v1"
 
@@ -76,12 +84,22 @@ def text_features(t: str) -> dict:
 
 def reject_reasons(f: dict, language: str, cleaned: str) -> list[str]:
     """Hard rules. Returns all reasons that apply; empty list = accepted."""
-    if language != "english":
+
+    detector = LanguageDetectorBuilder.from_all_languages().build()
+    conf = detector.compute_language_confidence_values(cleaned)[0]
+    lang, score = conf.language.iso_code_639_1.name.lower(), conf.value
+    if language != "english" or (lang != "en" and score > 0.7):
         return [
             "unsupported_language"
         ]  # the other rules don't make sense for non-English text
 
     reasons = []
+
+    words = re.findall(r"[a-zA-Z']+", cleaned.lower())
+    if words:
+        real = sum(zipf_frequency(w, "en") > 1.5 for w in words) / len(words)
+        if real < 0.5:
+            reasons.append("gibberish")
     if f["token_count"] < 5 or len(cleaned) < 25:
         reasons.append("too_short")
     if f["has_url"]:
