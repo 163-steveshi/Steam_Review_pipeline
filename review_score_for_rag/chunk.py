@@ -4,13 +4,11 @@
 
 # use chunk size 300 for this split, most steam review text is not exceeds 1200 char
 
+import os
 
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from sqlalchemy import create_engine, text, bindparam, Text
-from sqlalchemy.dialects.postgresql import JSONB, ARRAY
-from sqlalchemy.orm import Session, sessionmaker
-import os
-from score import score_review
+from sqlalchemy import create_engine, text
+from sqlalchemy.orm importsessionmaker
 from dotenv import load_dotenv
 
 load_dotenv("./.env")

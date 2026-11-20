@@ -58,7 +58,7 @@ CREATE TABLE IF NOT EXISTS gold.review_chunks (
     chunk_count         SMALLINT    NOT NULL,          -- how many chunks this review produced
     text_hash           CHAR(32)    NOT NULL,          -- copied from review_rag_score: detects edited reviews
     chunker_version     TEXT        NOT NULL,          -- e.g. 'v1-300tok-40ovl'
-
+    game_name               TEXT,
     -- content
     content             TEXT        NOT NULL,          -- cleaned chunk text (what the LLM reads)
 
@@ -70,7 +70,7 @@ CREATE TABLE IF NOT EXISTS gold.review_chunks (
     genres              TEXT[],                        -- flattened genres JSONB for vector search the filter “does this game have genre X?”
 
     -- embedding
-    embedding           vector(1536),                  -- NULL = waiting to be embedded
+    embedding           vector(1024),                  -- NULL = waiting to be embedded
     embed_model         TEXT,
     embedded_at         TIMESTAMPTZ,
 
