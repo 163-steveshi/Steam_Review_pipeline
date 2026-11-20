@@ -49,25 +49,58 @@ def review_to_chunks(row: dict) -> list[dict]:
 
 def main():
     # TODO: create another engine for write to rag vector
-    DATABASE_URL_LOCAL = os.environ["DATABASE_URL_LOCAL"]
-    engine = create_engine(DATABASE_URL_LOCAL)
-    SessionLocal = sessionmaker(bind=engine, autoflush=True)
-    with SessionLocal() as session:
-        query = text("""
-                     SELECT app_id, review_id, review_text_for_chunking, 
-                     language, voted_positive, playtime_at_review_mins, genres,
-                     text_hash, timestamp_created 
-                     FROM gold.review_rag_score
-                     where is_rag_eligible = 'true'
-                     """)
+    source_engine = create_engine(os.environ["DATABASE_URL_LOCAL"])
+    vector_engine = create_engine(os.environ["DATABASE_URL_VECTOR"])
 
-        # 2. Execute and pass the parameter value
-        rows: dict | None = session.execute(query).mappings().all()
-        records = []
-        if rows:
-            for r in rows:
-                records.append(review_to_chunks(r))
-        print(len(records))
+    # ---- 1. Read from the source ----
+    with source_engine.connect() as conn:
+        rows = conn.execute(text("""
+            SELECT app_id, review_id, review_text_for_chunking,
+                language, voted_positive, playtime_at_review_mins, genres,
+                text_hash, timestamp_created
+            FROM gold.review_rag_score
+            WHERE is_rag_eligible = true
+        """)).mappings().all()
+
+    records = []
+    for r in rows:
+        records.extend(
+            review_to_chunks(r)
+        )  # extend, not append, if it returns a list of chunks
+
+    insert_sql = text("""
+        INSERT INTO gold.review_chunks (
+            app_id, review_id, chunk_index, chunk_count, text_hash, chunker_version,
+            content, language, voted_positive, timestamp_created,
+            playtime_at_review_mins, genres
+        ) VALUES (
+            :app_id, :review_id, :chunk_index, :chunk_count, :text_hash, :chunker_version,
+            :content, :language, :voted_positive, :timestamp_created,
+            :playtime_at_review_mins, :genres
+        )
+        ON CONFLICT (app_id, review_id, chunk_index) DO UPDATE
+            SET chunk_count             = EXCLUDED.chunk_count,
+                text_hash               = EXCLUDED.text_hash,
+                chunker_version         = EXCLUDED.chunker_version,
+                content                 = EXCLUDED.content,
+                language                = EXCLUDED.language,
+                voted_positive          = EXCLUDED.voted_positive,
+                timestamp_created       = EXCLUDED.timestamp_created,
+                playtime_at_review_mins = EXCLUDED.playtime_at_review_mins,
+                genres                  = EXCLUDED.genres,
+                -- content changed -> old vector is stale, queue for re-embedding
+                embedding               = NULL,
+                embed_model             = NULL,
+                embedded_at             = NULL,
+                chunked_at              = now()
+            WHERE gold.review_chunks.text_hash       IS DISTINCT FROM EXCLUDED.text_hash
+            OR gold.review_chunks.chunker_version IS DISTINCT FROM EXCLUDED.chunker_version
+    """)
+    SessionLocal = sessionmaker(bind=vector_engine, autoflush=True)
+    with SessionLocal() as session:
+        if records:
+            session.execute(insert_sql, records)
+            session.commit()
 
 
 if __name__ == "__main__":
