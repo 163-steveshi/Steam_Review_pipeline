@@ -92,3 +92,14 @@ CREATE INDEX IF NOT EXISTS review_chunks_app_id     ON gold.review_chunks (app_i
 -- embedding worker: find pending chunks fast
 CREATE INDEX IF NOT EXISTS review_chunks_pending
     ON gold.review_chunks (app_id, review_id, chunk_index) WHERE embedding IS NULL;
+
+
+
+
+-- Query embeddings: voyage-4, input_type=query, 1024 dims (already unit-normalized)
+CREATE TABLE IF NOT EXISTS gold.eval_queries (
+    query_id    SERIAL PRIMARY KEY,
+    question    TEXT NOT NULL UNIQUE,
+    embed_model TEXT NOT NULL,
+    embedding   vector(1024) NOT NULL
+);
